@@ -11,7 +11,7 @@ Un **Claude coordinador por voz** para Linux + Hyprland. Hablás con un Claude p
 | `voice/voice.py` | TTS local con [Kokoro](https://github.com/thewh1teagle/kokoro-onnx). Un hook lee en voz alta solo lo que Claude pone dentro de `<voz>…</voz>`. Con *barge-in* (se calla si hablás) y *ducking* (baja la música mientras habla). |
 | `voice/listen.py` | Escucha continua con [faster-whisper](https://github.com/SYSTRAN/faster-whisper): dictás y el texto se escribe (y opcionalmente se envía) en la terminal correcta. |
 | `voice/names.py` | Nombres por voz para cada terminal ("central", "alfa", "beta"…): decís el nombre y el dictado va a esa sesión. |
-| `agentes/` | Lanzador de subagentes (`lanzar`, `cerrar`, `listar`) en ventanas kitty, cada uno con un rol (`agentes/roles/*.md`): orquestador, frontend, backend, seguridad, ideas, revisor, optimizador y dj (Spotify). |
+| `agentes/` | Lanzador de subagentes (`lanzar`, `cerrar`, `listar`) en ventanas kitty, cada uno con un rol (`agentes/roles/*.md`): orquestador, frontend, backend, seguridad, ideas, revisor y optimizador. |
 | `central/` | El `CLAUDE.md` del Claude coordinador y `hoy`, un script que muestra tu agenda de Google Calendar. |
 | `bin/` | `central` (abre/enfoca el coordinador) y `escucha` (controla el dictado). |
 
@@ -42,12 +42,6 @@ Configurá tus agentes en `~/agentes/agentes.conf` (hay un `.example`): una lín
 
 ### Variables útiles
 `CLAUDE_VOICE` (voz Kokoro), `CLAUDE_VOICE_SPEED`, `CLAUDE_VOICE_DUCK`, `CLAUDE_VOICE_BARGE`, `LISTEN_MODEL` (def. `small`), `LISTEN_LANG` (def. `es`), `LISTEN_PROMPT` (pista para Whisper; útil para acentos), `HOY_CALENDARIO`, `TZ_LOCAL`.
-
-### DJ de Spotify (opcional)
-Seguí `agentes/spotify/LEEME.md` para crear tu app de Spotify y guardar tus credenciales en `~/.config/spotify-dj/` (nunca dentro del repo).
-
-## Qué NO está acá
-Tus memorias, historial, credenciales, proyectos personales y roles privados. `.gitignore` ya excluye `settings.json`, `credentials.json`, `token.json`, modelos, logs y estado local.
 
 ## Licencia
 MIT. Los modelos de Kokoro y Whisper tienen sus propias licencias.
