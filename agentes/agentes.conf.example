@@ -1,0 +1,12 @@
+# nombre|directorio|archivo de rol (relativo a ~/agentes)
+# Una línea por agente. Las líneas que empiezan con # se ignoran.
+# Copiá este archivo a ~/agentes/agentes.conf y ajustá los directorios.
+# El workspace NO se define acá: `lanzar <nombre> [workspace]` (por defecto, el activo).
+orquestador|~|roles/orquestador.md
+frontend|~|roles/frontend.md
+backend|~|roles/backend.md
+seguridad|~|roles/seguridad.md
+ideas|~|roles/ideas.md
+revisor|~|roles/revisor.md
+optimizador|~|roles/optimizador.md
+dj|~|roles/dj.md

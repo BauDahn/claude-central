@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# hoy — muestra en la terminal tus eventos/tareas de hoy según Google Calendar.
+# Usa una sesión headless de Claude con el conector de Google Calendar.
+# Uso: ./hoy            (hoy)
+#      ./hoy mañana     (otro día, en lenguaje natural)
+set -euo pipefail
+
+DIA="${*:-hoy}"
+FECHA="$(date +%F)"
+
+PROMPT="Hoy es $FECHA. Usá el conector de Google Calendar para listar mis eventos y tareas de: $DIA.
+IMPORTANTE: consultá TODOS los calendarios, no solo el principal. Llamá a list_calendars y después a list_events
+para cada uno (en especial '${HOY_CALENDARIO:-el calendario principal}'), con startTime/endTime del día
+(zona ${TZ_LOCAL:-Europe/Madrid}) y orderBy startTime. Juntá todo y ordená por hora.
+Formato para terminal, en español, sin markdown pesado, una línea por evento:
+  HH:MM-HH:MM  Título  (lugar, si hay)
+Ordenados por hora; los eventos de todo el día primero. Al final, una línea con cuánto tiempo libre
+queda entre eventos si es relevante. Si no hay nada, decilo en una línea. No agregues nada más."
+
+exec claude -p "$PROMPT" \
+  --allowedTools "mcp__claude_ai_Google_Calendar" \
+  --permission-mode default

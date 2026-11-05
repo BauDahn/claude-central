@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Control de la escucha continua de Claude. Uso: escucha [toggle|on|off|send|auto|names|status|log]
+PATH="$HOME/.local/bin:$PATH"
+D="$HOME/.local/share/claude-voice"
+alive() { [ -f "$D/listen.pid" ] && kill -0 "$(cat "$D/listen.pid")" 2>/dev/null; }
+state() { alive && cat "$D/listen.state" 2>/dev/null || echo off; }
+start() { setsid nohup "$D/venv/bin/python" "$D/listen.py" >>"$D/listen.log" 2>&1 < /dev/null & }
+
+case "${1:-toggle}" in
+  toggle) if alive; then kill -USR1 "$(cat "$D/listen.pid")"; else start; fi ;;
+  on)     if ! alive; then start; elif [ "$(state)" = paused ]; then kill -USR1 "$(cat "$D/listen.pid")"; fi ;;
+  off)    alive && kill "$(cat "$D/listen.pid")" ;;
+  send)   "$D/venv/bin/python" "$D/send_enter.py" ;;
+  auto)
+    case "${2:-status}" in
+      on)     "$D/venv/bin/python" -c "import json,sys;p='$D/listen.conf'
+try: c=json.load(open(p))
+except Exception: c={}
+c['send']=True;json.dump(c,open(p,'w'))"; echo "auto: on (el dictado se envía solo)" ;;
+      off)    "$D/venv/bin/python" -c "import json,sys;p='$D/listen.conf'
+try: c=json.load(open(p))
+except Exception: c={}
+c['send']=False;json.dump(c,open(p,'w'))"; echo "auto: off (manual; Enter con el botón del ratón)" ;;
+      status) "$D/venv/bin/python" -c "import json;
+try: print('auto: on' if json.load(open('$D/listen.conf')).get('send') else 'auto: off')
+except Exception: print('auto: off')" ;;
+      *) echo "uso: escucha auto [on|off|status]"; exit 1 ;;
+    esac ;;
+  names)  "$D/venv/bin/python" -c "import sys;sys.path.insert(0,'$D');import names,subprocess,json;t=names.current()
+c={x['pid']:x for x in json.loads(subprocess.run(['hyprctl','clients','-j'],capture_output=True,text=True).stdout)}
+[print(('➡ ' if n==t else '  ')+n.ljust(8),'ws',c[p]['workspace']['id'] if p in c else '?',c[p]['title'] if p in c else '') for p,n in sorted(names.assign().items(),key=lambda x:x[1])]"  ;;
+  log)    tail -f "$D/listen.log" ;;
+  status)
+    s=$(state)
+    case $s in
+      off)          i="󰍭"; t="Escucha apagada (clic: encender)" ;;
+      paused)       i="󰍭"; t="Escucha en pausa (clic: reanudar)" ;;
+      loading)      i="󰔟"; t="Cargando modelo…" ;;
+      hearing)      i="󰍬"; t="Te escucho…" ;;
+      transcribing) i="󰔟"; t="Transcribiendo…" ;;
+      talking)      i="󰕾"; t="Claude está hablando" ;;
+      *)            i="󰍬"; t="Escuchando (clic: pausar)" ;;
+    esac
+    printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$i" "$s" "$t" ;;
+  *) echo "uso: escucha [toggle|on|off|send|auto|names|status|log]"; exit 1 ;;
+esac

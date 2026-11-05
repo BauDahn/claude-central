@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Corre DENTRO del kitty: arranca claude con nombre y prompt de rol.
+export PATH="$HOME/.local/bin:$PATH"
+source "$(dirname "$0")/_lib.sh"
+nombre="$1"
+IFS="|" read -r _ dir rol < <(agente_linea "$nombre") || { echo "agente '$nombre' no existe"; read -r; exit 1; }
+dir="${dir/#\~/$HOME}"
+cd "$dir" || exit 1
+prompt="$(cat "$ROOT/$rol" "$ROOT/roles/_comun.md")"
+exec claude -n "$nombre" "$prompt"

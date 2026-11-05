@@ -1,0 +1,18 @@
+# Nada personal ni generado
+venv/
+__pycache__/
+*.pyc
+*.bak*
+*.log
+models/
+credentials.json
+token.json
+.env
+settings.json
+names.json
+target.txt
+spoken.json
+listen.history
+agentes.conf
+estado.md
+pendientes.md

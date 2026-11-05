@@ -1,0 +1,6 @@
+{
+  "SessionStart":     [{"hooks": [{"type": "command", "command": "\"$VOICE_PY\" \"$VOICE_DIR/voice.py\" register", "timeout": 5}]}],
+  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"$VOICE_PY\" \"$VOICE_DIR/voice.py\" stop", "timeout": 5}]}],
+  "PreToolUse":       [{"hooks": [{"type": "command", "command": "\"$VOICE_PY\" \"$VOICE_DIR/voice.py\" early", "timeout": 5, "async": true}]}],
+  "Stop":             [{"hooks": [{"type": "command", "command": "\"$VOICE_PY\" \"$VOICE_DIR/voice.py\" speak", "timeout": 10}]}]
+}

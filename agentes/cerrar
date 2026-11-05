@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# cerrar <nombre>  — cierra la ventana del agente.
+source "$(dirname "$(readlink -f "$0")")/bin/_lib.sh"
+n="$1"; [ -n "$n" ] || { echo "uso: cerrar <nombre>"; exit 2; }
+[ -n "$(agente_ventana "$n")" ] || { echo "'$n' no está abierto"; exit 0; }
+hyprctl dispatch closewindow "class:^agente-$n\$" >/dev/null
+echo "cerrado '$n'"

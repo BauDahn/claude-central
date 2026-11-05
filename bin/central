@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Abre (o enfoca) el Claude principal, el que coordina las demás sesiones.
+if hyprctl clients -j | grep -q '"class": "claude-central"'; then
+  hyprctl dispatch focuswindow class:claude-central >/dev/null
+else
+  setsid kitty --class claude-central --directory "$HOME/central" env CLAUDE_CENTRAL=1 claude >/dev/null 2>&1 &
+fi
