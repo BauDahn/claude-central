@@ -15,6 +15,8 @@ Un **Claude coordinador por voz** para Linux + Hyprland. Hablás con un Claude p
 | `central/` | El `CLAUDE.md` del Claude coordinador y `hoy`, un script que muestra tu agenda de Google Calendar. |
 | `bin/` | `central` (abre/enfoca el coordinador) y `escucha` (controla el dictado). |
 
+> **Cómo funciona el trabajo en paralelo** (orquestador, optimizador en segundo plano, protocolo de mensajes y ahorro de tokens): [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
+
 ## Requisitos
 
 Linux con **Hyprland**, `kitty`, `wtype`, `jq`, PipeWire/PulseAudio (`pactl`, `parec`, `paplay`), Python 3.10+, `git` y [Claude Code](https://claude.com/claude-code). GPU NVIDIA opcional (Whisper usa CUDA si la hay, si no CPU).
