@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""tareas — tablero de tareas compartido entre agentes (JSON por proyecto, con bloqueo de archivo).
+
+  tareas add "título" [-p proyecto] [--para agente] [--dep ID ...]
+  tareas ls [-p proyecto] [--estado pendiente|en_curso|hecha|bloqueada] [--para agente]
+  tareas tomar ID [--como agente] [-p proyecto]     # atómico: falla si ya la tiene otro o si faltan dependencias
+  tareas listo ID [--nota "..."] [-p proyecto]
+  tareas bloquear ID --motivo "..." [-p proyecto]
+  tareas liberar ID [-p proyecto]                   # vuelve a pendiente (p. ej. un agente murió)
+  tareas resumen                                    # Markdown de todos los proyectos
+
+Datos en $AGENTES_HOME/tareas/<proyecto>.json (def. ~/agentes). El agente sale de --como o de $AGENTE.
+"""
+import argparse, fcntl, json, os, sys, time
+from contextlib import contextmanager
+from pathlib import Path
+
+HOME = Path(os.environ.get("AGENTES_HOME", Path.home() / "agentes"))
+DIR = HOME / "tareas"
+
+
+def path(p): return DIR / f"{p}.json"
+
+
+@contextmanager
+def abrir(p):
+    DIR.mkdir(parents=True, exist_ok=True)
+    with open(DIR / f".{p}.lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        f = path(p)
+        data = json.loads(f.read_text()) if f.exists() and f.read_text().strip() else {"siguiente": 1, "tareas": []}
+        yield data
+        tmp = f.with_suffix(".tmp"); tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False)); tmp.replace(f)
+
+
+def buscar(data, i):
+    for t in data["tareas"]:
+        if t["id"] == i: return t
+    sys.exit(f"no existe la tarea {i}")
+
+
+def quien(a): return a.como or os.environ.get("AGENTE") or "?"
+
+
+def fila(t): 
+    dep = f" dep:{','.join(map(str, t['dep']))}" if t.get("dep") else ""
+    own = f" [{t['dueno']}]" if t.get("dueno") else (f" -> {t['para']}" if t.get("para") else "")
+    nota = f" — {t['nota']}" if t.get("nota") else ""
+    return f"#{t['id']:<3} {t['estado']:<10} {t['titulo']}{own}{dep}{nota}"
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="tareas"); sub = ap.add_subparsers(dest="cmd", required=True)
+    def s(name, **kw):
+        x = sub.add_parser(name); x.add_argument("-p", "--proyecto", default="general"); x.add_argument("--como"); return x
+    a = s("add"); a.add_argument("titulo"); a.add_argument("--para"); a.add_argument("--dep", type=int, nargs="*", default=[])
+    l = s("ls"); l.add_argument("--estado"); l.add_argument("--para")
+    for n in ("tomar", "listo", "bloquear", "liberar", "ver"):
+        x = s(n); x.add_argument("id", type=int)
+        if n == "listo": x.add_argument("--nota")
+        if n == "bloquear": x.add_argument("--motivo", required=True)
+    s("resumen")
+    a = ap.parse_args()
+    now = time.strftime("%F %H:%M")
+
+    if a.cmd == "resumen":
+        hay = False
+        for f in sorted(DIR.glob("*.json")):
+            d = json.loads(f.read_text()); ab = [t for t in d["tareas"] if t["estado"] != "hecha"]
+            if not d["tareas"]: continue
+            hay = True; hechas = len(d["tareas"]) - len(ab)
+            print(f"### {f.stem}  ({hechas}/{len(d['tareas'])} hechas)")
+            for t in ab: print("- " + fila(t))
+        if not hay: print("- (sin tareas)")
+        return
+    with abrir(a.proyecto) as d:
+        if a.cmd == "add":
+            for i in a.dep: buscar(d, i)
+            t = {"id": d["siguiente"], "titulo": a.titulo, "estado": "pendiente", "para": a.para, "dep": a.dep, "creada": now}
+            d["tareas"].append(t); d["siguiente"] += 1; print(t["id"])
+        elif a.cmd == "ls":
+            for t in d["tareas"]:
+                if (not a.estado or t["estado"] == a.estado) and (not a.para or t.get("para") == a.para or t.get("dueno") == a.para):
+                    print(fila(t))
+        elif a.cmd == "ver": print(json.dumps(buscar(d, a.id), indent=2, ensure_ascii=False))
+        else:
+            t = buscar(d, a.id)
+            if a.cmd == "tomar":
+                pend = [i for i in t.get("dep", []) if buscar(d, i)["estado"] != "hecha"]
+                if t["estado"] == "en_curso" and t.get("dueno") != quien(a): sys.exit(f"la tiene {t['dueno']}")
+                if t["estado"] == "hecha": sys.exit("ya está hecha")
+                if pend: sys.exit(f"faltan dependencias: {pend}")
+                if t.get("para") and t["para"] != quien(a): sys.exit(f"está asignada a {t['para']}")
+                t.update(estado="en_curso", dueno=quien(a), inicio=now)
+            elif a.cmd == "listo": t.update(estado="hecha", fin=now, nota=a.nota or t.get("nota"))
+            elif a.cmd == "bloquear": t.update(estado="bloqueada", nota=a.motivo)
+            elif a.cmd == "liberar": t.update(estado="pendiente", dueno=None)
+            print(fila(t))
+
+
+if __name__ == "__main__":
+    main()

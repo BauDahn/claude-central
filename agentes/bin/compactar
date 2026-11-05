@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""compactar — convierte una conversación larga de Claude Code en un documento corto para retomarla en una sesión NUEVA.
+
+  compactar <id|nombre> [--resumir] [--max N]   genera $AGENTES_HOME/contexto/conversaciones/<nombre>.md
+  compactar nueva <documento.md>                abre una sesión nueva de claude cargando solo ese documento
+  compactar aviso                               modo hook (Stop): avisa una vez cuando el contexto pasa de COMPACT_UMBRAL
+
+Sin --resumir es 100 % extractivo (gratis, sin LLM): peticiones del usuario, últimas respuestas, archivos tocados y
+comandos. Con --resumir, además pide a `claude -p --model haiku` un resumen de decisiones/estado/pendientes
+(consume tokens). Mide el tamaño antes/después. Un subagente NO puede reescribir el contexto en vivo de otra
+sesión: la salida es siempre un documento para una sesión nueva.
+"""
+import argparse, glob, json, os, subprocess, sys, time
+from pathlib import Path
+
+HOME = Path(os.environ.get("AGENTES_HOME", Path.home() / "agentes"))
+BASE = Path(os.environ.get("CLAUDE_HOME", Path.home() / ".claude")) / "projects"
+UMBRAL = int(os.environ.get("COMPACT_UMBRAL", "150000"))
+
+
+def aprox(txt): return len(txt) // 4          # ~4 caracteres por token (estimación)
+
+
+def encontrar(ref):
+    for f in glob.glob(str(BASE / "*" / "*.jsonl")):
+        if Path(f).stem == ref: return Path(f)
+    mejor = None
+    for f in glob.glob(str(BASE / "*" / "*.jsonl")):
+        try:
+            with open(f, errors="ignore") as fh:
+                for i, l in enumerate(fh):
+                    if i > 200: break
+                    if '"custom-title"' in l and json.loads(l).get("customTitle") == ref:
+                        if not mejor or os.path.getmtime(f) > os.path.getmtime(mejor): mejor = f
+                        break
+        except (OSError, ValueError): pass
+    return Path(mejor) if mejor else None
+
+
+def texto_de(content):
+    if isinstance(content, str): return content
+    return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+
+
+def analizar(f):
+    pet, resp, archivos, cmds, ctx = [], [], [], [], 0
+    nombre = None; ult_resp = None
+    for l in open(f, errors="ignore"):
+        try: d = json.loads(l)
+        except ValueError: continue
+        t = d.get("type")
+        if t == "custom-title": nombre = d.get("customTitle") or nombre
+        m = d.get("message") or {}
+        if t == "user" and not d.get("isMeta"):
+            x = texto_de(m.get("content", "")).strip()
+            if x and not x.startswith(("<system-reminder", "<command-", "<local-command", "Caveat:")): pet.append(x)
+        elif t == "assistant":
+            u = m.get("usage") or {}
+            if u: ctx = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+            for b in m.get("content", []) if isinstance(m.get("content"), list) else []:
+                if b.get("type") == "text" and b.get("text", "").strip(): ult_resp = b["text"].strip()
+                elif b.get("type") == "tool_use":
+                    i = b.get("input", {})
+                    if b.get("name") in ("Edit", "Write", "MultiEdit", "NotebookEdit") and i.get("file_path"): archivos.append(i["file_path"])
+                    elif b.get("name") == "Bash" and i.get("command"): cmds.append(i["command"].splitlines()[0][:120])
+        if t == "user" and ult_resp:          # el asistente "cerró" un turno cuando llega el siguiente mensaje del usuario
+            resp.append(ult_resp); ult_resp = None
+    if ult_resp: resp.append(ult_resp)
+    return nombre, pet, resp, archivos, cmds, ctx
+
+
+def cortar(s, n): s = " ".join(s.split()); return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def generar(a):
+    f = encontrar(a.ref) or sys.exit("sesión no encontrada")
+    nombre, pet, resp, archivos, cmds, ctx = analizar(f)
+    antes = aprox(f.read_text(errors="ignore"))
+    n = a.max
+    out = [f"<!-- fuente: {f} | fecha: {time.strftime('%F')} | modo: {'extractivo+LLM' if a.resumir else 'extractivo'} -->",
+           f"# Conversación compactada: {nombre or f.stem}", "",
+           "> Documento para retomar el trabajo en una sesión NUEVA. El registro completo está en la ruta de arriba por si hace falta detalle.", "",
+           f"## Peticiones del usuario (últimas {min(n, len(pet))} de {len(pet)})"]
+    out += [f"- {cortar(x, 220)}" for x in pet[-n:]]
+    out += ["", f"## Últimas respuestas del asistente (últimas {min(5, len(resp))})"]
+    out += [f"- {cortar(x, 400)}" for x in resp[-5:]]
+    unicos = list(dict.fromkeys(archivos))
+    out += ["", f"## Archivos tocados ({len(unicos)})"] + [f"- {x}" for x in unicos[-30:]]
+    out += ["", f"## Comandos recientes (de {len(cmds)})"] + [f"- `{x}`" for x in cmds[-10:]]
+    doc = "\n".join(out) + "\n"
+    if a.resumir:
+        p = ("Resumí esta conversación en español, en Markdown, con EXACTAMENTE estas secciones y solo con lo que se ve abajo: "
+             "## Decisiones tomadas, ## Estado actual, ## Pendientes, ## Preferencias del usuario. Sé breve y no inventes.\n\n" + doc)
+        r = subprocess.run(["claude", "-p", "--model", "haiku", p], capture_output=True, text=True, timeout=300)
+        if r.returncode: sys.exit("falló claude -p: " + r.stderr[:300])
+        doc += "\n" + r.stdout.strip() + "\n"
+    destino = HOME / "contexto" / "conversaciones" / f"{nombre or f.stem}.md"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    tmp = destino.with_suffix(".tmp"); tmp.write_text(doc); tmp.replace(destino)
+    despues = aprox(doc)
+    base = ctx or antes
+    print(f"escrito {destino}\n  contexto vivo de la sesión = {ctx} tokens | registro en disco ≈ {antes} (incluye peticiones/blobs que el modelo no re-lee)"
+          f" | documento ≈ {despues} tokens → {100 * despues / max(base, 1):.1f}% del contexto vivo")
+    print("  Nota: el modo extractivo descarta detalle; usá --resumir para decisiones/estado/pendientes y compará con /compact.")
+
+
+def aviso():
+    try: d = json.load(sys.stdin)
+    except ValueError: return
+    tp = d.get("transcript_path"); sid = d.get("session_id") or ""
+    if not tp or not os.path.exists(tp): return
+    ctx = 0
+    for l in open(tp, errors="ignore"):
+        if '"usage"' in l:
+            try: u = (json.loads(l).get("message") or {}).get("usage") or {}
+            except ValueError: continue
+            if u: ctx = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+    marca = HOME / "estado" / f"aviso-{sid}"
+    if ctx < UMBRAL or marca.exists(): return
+    marca.parent.mkdir(parents=True, exist_ok=True); marca.write_text(str(ctx))
+    msg = f"Sesión {os.environ.get('AGENTE') or sid[:8]}: contexto ≈ {ctx} tokens (umbral {UMBRAL}). Conviene: compactar {sid}"
+    with open(HOME / "estado" / "avisos.log", "a") as fh: fh.write(time.strftime("%F %H:%M ") + msg + "\n")
+    try: subprocess.run(["notify-send", "Claude Central", msg], timeout=5)
+    except (OSError, subprocess.SubprocessError): pass
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "aviso": return aviso()
+    if len(sys.argv) > 2 and sys.argv[1] == "nueva":
+        doc = Path(sys.argv[2]).read_text()
+        os.execvp("claude", ["claude", "Retomás un trabajo previo. Este es el resumen de la conversación anterior; "
+                                        "usalo como contexto y pedime la tarea siguiente:\n\n" + doc])
+    ap = argparse.ArgumentParser(prog="compactar"); ap.add_argument("ref"); ap.add_argument("--resumir", action="store_true")
+    ap.add_argument("--max", type=int, default=15); generar(ap.parse_args())
+
+
+if __name__ == "__main__":
+    main()

@@ -11,7 +11,8 @@ Un **Claude coordinador por voz** para Linux + Hyprland. Hablás con un Claude p
 | `voice/voice.py` | TTS local con [Kokoro](https://github.com/thewh1teagle/kokoro-onnx). Un hook lee en voz alta solo lo que Claude pone dentro de `<voz>…</voz>`. Con *barge-in* (se calla si hablás) y *ducking* (baja la música mientras habla). |
 | `voice/listen.py` | Escucha continua con [faster-whisper](https://github.com/SYSTRAN/faster-whisper): dictás y el texto se escribe (y opcionalmente se envía) en la terminal correcta. |
 | `voice/names.py` | Nombres por voz para cada terminal ("central", "alfa", "beta"…): decís el nombre y el dictado va a esa sesión. |
-| `agentes/` | Lanzador de subagentes (`lanzar`, `cerrar`, `listar`) en ventanas kitty, cada uno con un rol (`agentes/roles/*.md`): orquestador, frontend, backend, seguridad, ideas, revisor y optimizador. |
+| `agentes/` | Lanzador de subagentes (`lanzar`, `cerrar`, `listar`) en ventanas kitty, cada uno con un rol (`agentes/roles/*.md`): orquestador, frontend, backend, seguridad, ideas, revisor, optimizador y compactador; con modelo por rol y, si querés, un `git worktree` por agente. |
+| `agentes/bin/` | Herramientas compartidas: `tareas` (tablero atómico), `bloqueo` (hook anti-pisadas), `tokens` (consumo por agente), `contexto-check` (caché viejo), `compactar` (conversaciones largas → documento). Además `restaurar` y `guardar-estado` para sobrevivir a un apagado. |
 | `central/` | El `CLAUDE.md` del Claude coordinador y `hoy`, un script que muestra tu agenda de Google Calendar. |
 | `bin/` | `central` (abre/enfoca el coordinador) y `escucha` (controla el dictado). |
 
@@ -38,9 +39,13 @@ central                  # abre el Claude coordinador (en ~/central)
 escucha on               # activa el dictado continuo (off | auto on | names | status)
 ~/agentes/lanzar backend ~     # abre un subagente (ver agentes.conf)
 ~/agentes/listar
+~/agentes/restaurar          # reabre los agentes que estaban abiertos antes de apagar
+tokens --por agente      # cuánto gasta cada sesión
+tareas ls -p miproyecto  # tablero de tareas compartido
+compactar <sesion>       # conversación larga -> documento corto para una sesión nueva
 ```
 
-Configurá tus agentes en `~/agentes/agentes.conf` (hay un `.example`): una línea `nombre|directorio|rol.md`. Para añadir uno nuevo, creá su rol en `~/agentes/roles/`.
+Configurá tus agentes en `~/agentes/agentes.conf` (hay un `.example`): una línea `nombre|directorio|rol.md|opciones`, con opciones `model=` y `worktree=1`. Para añadir uno nuevo, creá su rol en `~/agentes/roles/`.
 
 ### Variables útiles
 `CLAUDE_VOICE` (voz Kokoro), `CLAUDE_VOICE_SPEED`, `CLAUDE_VOICE_DUCK`, `CLAUDE_VOICE_BARGE`, `LISTEN_MODEL` (def. `small`), `LISTEN_LANG` (def. `es`), `LISTEN_PROMPT` (pista para Whisper; útil para acentos), `HOY_CALENDARIO`, `TZ_LOCAL`.

@@ -10,3 +10,5 @@ Corrés todo el tiempo en segundo plano; el usuario no habla con vos. Bucle: ate
 4. Respondé al pedido con `CONTEXTO-LISTO: <ruta> (~N tokens) — <resumen>`.
 5. Si una entrada del INDEX tiene la fuente modificada desde su fecha, refrescala antes de responder. Si el orquestador te avisa qué se va a necesitar, precargalo.
 No instales herramientas sin aprobación del usuario (pedila a central). Si no hay herramienta para algo, hacelo a mano con lo que haya y decilo.
+6. Al arrancar y cada vez que te lo pidan, corré `contexto-check --pedir`: marca VIEJA/FALTA cada entrada del INDEX cuya fuente cambió (compara `git HEAD` o fechas) e imprime los `PEDIR-CONTEXTO` a refrescar. Las `?` (URLs) revisalas a mano si importan.
+

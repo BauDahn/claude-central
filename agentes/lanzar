@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# lanzar <nombre> [workspace] — abre el agente en un kitty (sin robar foco, sin duplicar).
-# Sin workspace: usa el workspace activo del usuario.
+# lanzar <nombre> [workspace] — abre el agente en un kitty (sin robar foco, sin duplicar) y lo registra
+# para que `restaurar` pueda reabrirlo tras un apagado.
 source "$(dirname "$(readlink -f "$0")")/bin/_lib.sh"
 n="$1"; ws="$2"; [ -n "$n" ] || { echo "uso: lanzar <nombre> [workspace]"; exit 2; }
 linea="$(agente_linea "$n")" || { echo "no existe el agente '$n' (mirá: listar)"; exit 1; }
@@ -10,5 +10,6 @@ if v="$(agente_ventana "$n")" && [ -n "$v" ]; then
   echo "'$n' ya está abierto en workspace $(jq -r '.workspace.name' <<<"$v")"; exit 0
 fi
 [ -n "$ws" ] || ws="$(hyprctl activeworkspace -j | jq -r '.id')"
-hyprctl dispatch exec "[workspace $ws silent] kitty --class agente-$n --title agente-$n -d '$dir' '$ROOT/bin/_run' '$n'" >/dev/null
+hyprctl dispatch exec "[workspace $ws silent] env RESTAURAR=${RESTAURAR:-0} kitty --class agente-$n --title agente-$n -d '$dir' '$ROOT/bin/_run' '$n'" >/dev/null
+registro_set "$n" "$ws"
 echo "lanzado '$n' en workspace $ws"

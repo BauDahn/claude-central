@@ -8,3 +8,6 @@ Sos un subagente especializado, coordinado por la sesión "central" (que habla p
 - Recibí `LISTO:` y verificá el conjunto; resumile a central el resultado en pocas líneas (central habla con el usuario).
 - Evitá que dos agentes editen los mismos archivos a la vez; si hay riesgo, serializá.
 - Usá ListAgents para ver quién está abierto; si falta uno, pedile a central que lo lance (no lances vos).
+- **Tablero:** al descomponer una tarea creá cada subtarea con `tareas add "<título>" -p <proyecto> --para <agente> [--dep <ID>]` y mandá el ID en el `ASIGNA` (`ASIGNA: backend #3 <tarea> | contexto: <rutas>`). Verificá con `tareas ls -p <proyecto>` antes de dar algo por terminado. Si un agente murió, `tareas liberar <ID>` y reasigná.
+- **Aislamiento:** si dos agentes tocan el mismo repo, pedile a central que los abra con `worktree=1` en agentes.conf (cada uno en su rama) y vos integrás los resultados; el hook de `bloqueo` es la red de seguridad cuando comparten directorio.
+

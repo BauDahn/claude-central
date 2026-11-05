@@ -1,11 +1,14 @@
-# nombre|directorio|archivo de rol (relativo a ~/agentes)
-# Una línea por agente. Las líneas que empiezan con # se ignoran.
-# Copiá este archivo a ~/agentes/agentes.conf y ajustá los directorios.
+# nombre|directorio|archivo de rol (relativo a ~/agentes)|opciones (opcional)
+# Opciones separadas por coma:  model=<opus|sonnet|haiku|nombre completo>   worktree=1
+#   model     modelo de esa sesión (más barato para roles livianos, más fuerte para los críticos)
+#   worktree  la sesión trabaja en su propio git worktree/rama (solo si el directorio es un repo git)
+# Las líneas que empiezan con # se ignoran. Copiá este archivo a ~/agentes/agentes.conf y ajustá los directorios.
 # El workspace NO se define acá: `lanzar <nombre> [workspace]` (por defecto, el activo).
-orquestador|~|roles/orquestador.md
-frontend|~|roles/frontend.md
-backend|~|roles/backend.md
-seguridad|~|roles/seguridad.md
-ideas|~|roles/ideas.md
-revisor|~|roles/revisor.md
-optimizador|~|roles/optimizador.md
+orquestador|~|roles/orquestador.md|model=opus
+frontend|~|roles/frontend.md|model=sonnet,worktree=1
+backend|~|roles/backend.md|model=sonnet,worktree=1
+seguridad|~|roles/seguridad.md|model=opus
+ideas|~|roles/ideas.md|model=haiku
+revisor|~|roles/revisor.md|model=sonnet
+optimizador|~|roles/optimizador.md|model=haiku
+compactador|~|roles/compactador.md|model=haiku

@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""tokens — cuánto consumen tus sesiones de Claude Code, leyendo ~/.claude/projects/*/*.jsonl (solo lectura).
+
+  tokens                          resumen de los últimos 7 días, por agente (nombre de la sesión)
+  tokens --desde 2026-11-01 --por proyecto|agente|modelo|dia|sesion
+  tokens --sesion <id|nombre>     tamaño de contexto turno a turno (útil para decidir cuándo compactar)
+  tokens --json
+
+Columnas: entrada (nueva), caché-lect (leída de caché, barata), caché-esc (escrita a caché), salida, turnos.
+"Contexto" = lo que ocupa la última petición (entrada + caché). No calcula dinero: los precios cambian.
+"""
+import argparse, collections, datetime as dt, glob, json, os, sys
+
+BASE = os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "projects")
+CAMPOS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
+
+
+def sesiones():
+    for f in glob.glob(os.path.join(BASE, "*", "*.jsonl")):
+        yield f
+
+
+def leer(f):
+    """Devuelve (nombre, [(ts, modelo, usage)]) deduplicando por id de mensaje (el log repite el streaming)."""
+    nombre = None; msgs = {}
+    try:
+        with open(f, errors="ignore") as fh:
+            for l in fh:
+                if '"custom-title"' in l:
+                    try: nombre = json.loads(l).get("customTitle") or nombre
+                    except ValueError: pass
+                    continue
+                if '"usage"' not in l: continue
+                try: d = json.loads(l)
+                except ValueError: continue
+                m = d.get("message") or {}
+                u = m.get("usage")
+                if d.get("type") != "assistant" or not u: continue
+                k = m.get("id") or d.get("uuid")
+                msgs[k] = (d.get("timestamp", ""), m.get("model", "?"), u)
+    except OSError:
+        pass
+    return nombre, sorted(msgs.values(), key=lambda x: x[0])
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="tokens")
+    ap.add_argument("--desde", default=(dt.date.today() - dt.timedelta(days=7)).isoformat())
+    ap.add_argument("--por", default="agente", choices=["agente", "proyecto", "modelo", "dia", "sesion"])
+    ap.add_argument("--sesion"); ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    if a.sesion:
+        for f in sesiones():
+            nombre, ms = leer(f)
+            if a.sesion in (os.path.basename(f)[:-6], nombre) and ms:
+                print(f"# {nombre or '(sin nombre)'}  {os.path.basename(f)}")
+                for i, (ts, mod, u) in enumerate(ms, 1):
+                    ctx = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+                    print(f"{i:>4} {ts[11:19]} contexto={ctx:>8} salida={u.get('output_tokens', 0):>6} {mod}")
+                return
+        sys.exit("sesión no encontrada")
+
+    acc = collections.defaultdict(lambda: dict.fromkeys(CAMPOS, 0) | {"turnos": 0, "ctx": 0})
+    for f in sesiones():
+        nombre, ms = leer(f)
+        proyecto = os.path.basename(os.path.dirname(f))
+        for ts, mod, u in ms:
+            if ts[:10] < a.desde: continue
+            clave = {"agente": nombre or "(sin nombre)", "proyecto": proyecto, "modelo": mod,
+                     "dia": ts[:10], "sesion": f"{nombre or '-'} {os.path.basename(f)[:8]}"}[a.por]
+            r = acc[clave]
+            for c in CAMPOS: r[c] += u.get(c, 0) or 0
+            r["turnos"] += 1
+            r["ctx"] = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+    if a.json:
+        print(json.dumps(acc, indent=2, ensure_ascii=False)); return
+    print(f"{'':<34}{'entrada':>10}{'caché-lect':>12}{'caché-esc':>11}{'salida':>9}{'turnos':>8}{'contexto*':>11}")
+    for k, r in sorted(acc.items(), key=lambda x: -(x[1]["input_tokens"] + x[1]["cache_read_input_tokens"] + x[1]["cache_creation_input_tokens"] + x[1]["output_tokens"])):
+        print(f"{k[:33]:<34}{r['input_tokens']:>10}{r['cache_read_input_tokens']:>12}{r['cache_creation_input_tokens']:>11}"
+              f"{r['output_tokens']:>9}{r['turnos']:>8}{r['ctx']:>11}")
+    print("* contexto = tamaño de la última petición de ese grupo")
+
+
+if __name__ == "__main__":
+    main()

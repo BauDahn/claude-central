@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# restaurar — reabre los agentes que estaban abiertos antes del apagado (retoma su conversación si existe).
+# Poné en hyprland.conf:  exec-once = ~/agentes/restaurar
+source "$(dirname "$(readlink -f "$0")")/bin/_lib.sh"
+f="$(registro_abiertos)"; [ -s "$f" ] || { echo "nada que restaurar"; exit 0; }
+[ "$1" = "--ver" ] && { jq -r 'to_entries[]|"\(.key)\tws \(.value.workspace)"' "$f"; exit 0; }
+for n in $(jq -r 'keys[]' "$f"); do
+  ws="$(jq -r --arg n "$n" '.[$n].workspace' "$f")"
+  RESTAURAR=1 "$ROOT/lanzar" "$n" "$ws"
+  sleep 0.5
+done
+"$ROOT/guardar-estado" >/dev/null 2>&1 || true

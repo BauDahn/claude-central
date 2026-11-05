@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""bloqueo — evita que dos agentes editen el mismo archivo a la vez (en un mismo directorio de trabajo).
+
+  bloqueo tomar <ruta> [--como agente] [--ttl MIN]   exit 1 si lo tiene otro
+  bloqueo soltar <ruta> [--como agente]
+  bloqueo soltar-todo [--como agente]
+  bloqueo ver
+  bloqueo hook      # para PreToolUse (Edit/Write): lee el JSON del hook, bloquea (exit 2) si otro agente tiene el
+                    # archivo y, si no, lo toma automáticamente. No hace NADA si no hay $AGENTE (central y sesiones normales).
+
+Un bloqueo sobre un directorio cubre todo lo que hay dentro. Los bloqueos caducan (def. 30 min, se renuevan al editar).
+Datos en $AGENTES_HOME/locks/.  Con `worktree=1` en agentes.conf casi no hace falta: cada agente edita su propia copia.
+"""
+import argparse, fcntl, hashlib, json, os, sys, time
+from pathlib import Path
+
+HOME = Path(os.environ.get("AGENTES_HOME", Path.home() / "agentes"))
+DIR = HOME / "locks"
+TTL = int(os.environ.get("BLOQUEO_TTL_MIN", "30"))
+
+
+def real(p): return os.path.realpath(os.path.expanduser(p))
+def solapa(a, b): return a == b or a.startswith(b.rstrip("/") + "/") or b.startswith(a.rstrip("/") + "/")
+
+
+def leer():
+    DIR.mkdir(parents=True, exist_ok=True)
+    ahora = time.time(); out = []
+    for f in DIR.glob("*.json"):
+        try: d = json.loads(f.read_text())
+        except (OSError, ValueError): continue
+        if d["expira"] < ahora: f.unlink(missing_ok=True); continue
+        d["_f"] = f; out.append(d)
+    return out
+
+
+def con_candado(fn):
+    DIR.mkdir(parents=True, exist_ok=True)
+    with open(DIR / ".lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX); return fn()
+
+
+def tomar(ruta, ag, ttl=TTL):
+    def f():
+        r = real(ruta)
+        for d in leer():
+            if solapa(r, d["ruta"]) and d["agente"] != ag: return d
+        (DIR / (hashlib.sha1(r.encode()).hexdigest()[:16] + ".json")).write_text(
+            json.dumps({"ruta": r, "agente": ag, "expira": time.time() + ttl * 60}))
+        return None
+    return con_candado(f)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bloqueo"); s = ap.add_subparsers(dest="cmd", required=True)
+    for n in ("tomar", "soltar"):
+        x = s.add_parser(n); x.add_argument("ruta"); x.add_argument("--como"); x.add_argument("--ttl", type=int, default=TTL)
+    x = s.add_parser("soltar-todo"); x.add_argument("--como")
+    s.add_parser("ver"); s.add_parser("hook")
+    a = ap.parse_args(); ag = getattr(a, "como", None) or os.environ.get("AGENTE") or "?"
+
+    if a.cmd == "hook":
+        ag = os.environ.get("AGENTE")
+        if not ag: return 0
+        try: ruta = json.load(sys.stdin).get("tool_input", {}).get("file_path") or ""
+        except ValueError: return 0
+        if not ruta: return 0
+        d = tomar(ruta, ag)
+        if d:
+            print(f"BLOQUEADO: {ruta} está siendo editado por '{d['agente']}' (caduca en "
+                  f"{int((d['expira'] - time.time()) / 60)} min). Coordiná con el orquestador o esperá.", file=sys.stderr)
+            return 2
+        return 0
+    if a.cmd == "tomar":
+        d = tomar(a.ruta, ag, a.ttl)
+        if d: print(f"lo tiene {d['agente']}"); return 1
+        print("ok"); return 0
+    if a.cmd == "soltar":
+        r = real(a.ruta)
+        def f():
+            for d in leer():
+                if d["ruta"] == r and d["agente"] == ag: d["_f"].unlink(missing_ok=True)
+        con_candado(f); return 0
+    if a.cmd == "soltar-todo":
+        def f():
+            for d in leer():
+                if d["agente"] == ag: d["_f"].unlink(missing_ok=True)
+        con_candado(f); return 0
+    for d in con_candado(leer):
+        print(f"{d['agente']:<12} {int((d['expira'] - time.time()) / 60):>3} min  {d['ruta']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,6 @@
+[Unit]
+Description=Guardar estado de los agentes de Claude Central
+
+[Service]
+Type=oneshot
+ExecStart=%h/agentes/guardar-estado

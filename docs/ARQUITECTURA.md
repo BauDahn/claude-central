@@ -106,15 +106,60 @@ El rol del optimizador los **recomienda como referencia** y le indica verificar 
 
 Un caveat honesto: **no todo conversor ayuda**. En un experimento propio con un RAG, activar un parser más sofisticado (docling sin OCR) *empeoró* los resultados en algunos corpus, así que conviene **medir antes de adoptar** — por eso el optimizador mide antes/después.
 
-## 6. Cómo montar el tuyo
+## 6. Coordinación sin pisarse: tablero, bloqueos y aislamiento
+
+**Tablero de tareas (`tareas`).** Estado compartido en `~/agentes/tareas/<proyecto>.json`, con bloqueo de archivo (`flock`), así que `tomar` es **atómico**: si 8 agentes intentan tomar la misma tarea a la vez, gana uno solo (hay un test). Estados: `pendiente → en_curso → hecha` (o `bloqueada`). Soporta dependencias (`--dep`) y asignación (`--para`). El orquestador crea las subtareas con `tareas add` y manda el ID en el `ASIGNA`; los agentes hacen `tomar` y `listo`. Como vive en disco, **sobrevive a reinicios**: si el orquestador se cae, otro puede leer el tablero y seguir. `tareas liberar` devuelve a pendiente la tarea de un agente que murió.
+
+**Bloqueos de archivo (`bloqueo`).** Un hook `PreToolUse` sobre `Edit|Write|MultiEdit|NotebookEdit` ejecuta `bloqueo hook`: si el archivo (o su carpeta) lo tiene otro agente, **bloquea la edición** (exit 2) con un mensaje; si no, lo toma por 30 min y renueva en cada edición. No hace nada si no hay `$AGENTE`, así que `central` y tus sesiones normales no se ven afectadas. Es una red de seguridad: el problema se evita de raíz con lo siguiente.
+
+**Aislamiento con `git worktree` (`worktree=1`).** En `agentes.conf`, `frontend|~/app|roles/frontend.md|model=sonnet,worktree=1` arranca esa sesión con `claude --worktree <nombre>`: cada agente edita **su propia copia y rama** del repo, sin posibilidad de pisar a otro. El orquestador integra los resultados (merge) cuando cada uno reporta `LISTO`.
+
+## 7. Estado que sobrevive a un apagado
+
+- `lanzar` anota cada agente abierto (y su workspace) en `~/agentes/estado/abiertos.json`; `cerrar` lo borra (cerrarlo a propósito significa "no restaurar"). Un apagado no pasa por `cerrar`, así que el registro queda.
+- `~/agentes/restaurar` reabre los que estaban abiertos, en su workspace, y **retoma su conversación** (`claude --resume <nombre>`) si existe una sesión con ese nombre; si no, arranca limpia con su rol. `restaurar --ver` solo lista. Ponelo en Hyprland: `exec-once = ~/agentes/restaurar`.
+- `~/agentes/guardar-estado` escribe `estado/ESTADO.md` (agentes abiertos, tareas pendientes, contexto cacheado viejo). Hay un timer de systemd (`config/systemd/`) que lo corre cada 10 min: `systemctl --user enable --now guardar-estado.timer`. **`central` lo lee al arrancar** (está en su `CLAUDE.md`).
+
+## 8. Medir el consumo: `tokens`
+
+Lee las transcripciones de `~/.claude/projects/*/*.jsonl` (solo lectura) y suma por **agente** (el nombre `-n` de la sesión), proyecto, modelo, día o sesión: tokens de entrada nuevos, **leídos de caché**, escritos a caché, salida, turnos y tamaño del contexto. Deduplica por id de mensaje porque el log repite el streaming.
+
+```
+tokens --desde 2026-11-01 --por agente
+tokens --por dia
+tokens --sesion <id|nombre>     # contexto turno a turno
+```
+No convierte a dinero (los precios cambian). Sirve para ver qué agente gasta de más y dónde conviene un modelo más barato.
+
+## 9. Caché de contexto que no se queda viejo: `contexto-check`
+
+Recorre `contexto/INDEX.md` y marca cada entrada `ok`, `VIEJA`, `FALTA` o `?` (URL, no verificable). Si el archivo cacheado trae `git HEAD:` y la fuente es un repo, compara con el HEAD actual; si no, compara la fecha de modificación de la fuente con la de la entrada. Con `--pedir` imprime los `PEDIR-CONTEXTO` listos para el optimizador, que lo corre al arrancar. `guardar-estado` lo incluye en `ESTADO.md`.
+
+## 10. Modelo según el rol
+
+El 4º campo de `agentes.conf` acepta `model=<opus|sonnet|haiku|nombre completo>`. Los roles críticos (orquestador, seguridad) en uno más fuerte; los livianos (ideas, optimizador, compactador) en uno barato. Los valores de `agentes.conf.example` son **sugerencias razonables, no medidas**: con `tokens --por agente` podés comprobar cuánto gasta cada rol y ajustar.
+
+## 11. Compactar conversaciones largas: `compactar`
+
+Un subagente **no puede reescribir el contexto en vivo de otra sesión**, así que la salida es un documento para una sesión **nueva**.
+
+- `compactar <id|nombre>` → `contexto/conversaciones/<sesion>.md` con las peticiones del usuario, las últimas respuestas, los archivos tocados y los comandos recientes, más un reporte de tamaño (contexto vivo vs. documento). Es **extractivo y gratis**; con `--resumir` añade decisiones, estado y pendientes usando un modelo barato (gasta tokens).
+- `compactar nueva <doc.md>` abre `claude` cargando solo ese documento.
+- **Aviso automático:** un hook `Stop` corre `compactar aviso`; cuando el contexto de una sesión supera `COMPACT_UMBRAL` (def. 150.000 tokens) escribe en `estado/avisos.log` y manda una notificación de escritorio, una sola vez por sesión.
+
+**Frente a `/compact` de Claude Code:** `/compact` es in situ y conserva el hilo, pero el resumen lo decide el modelo y no queda como archivo. Este documento es más corto, auditable y versionable, y permite cambiar de modelo o de sesión. **Qué no está medido:** la calidad del resumen frente a `/compact` (hay que probarlo con una conversación real y comparar con `tokens --sesion`).
+
+## 12. Cómo montar el tuyo
 
 1. Ajusta `~/agentes/agentes.conf` con los directorios de tus proyectos.
 2. Lanza `central` y pídele, por ejemplo: *"abre el orquestador y el optimizador sobre mi proyecto X"*.
 3. Dale una tarea grande al orquestador (vía `central`). Verás cómo reparte con `ASIGNA`, cómo el optimizador va llenando `contexto/` y cómo vuelve un único resumen a `central`.
 4. Para sumar un rol nuevo: crea `~/agentes/roles/<rol>.md`, añade una línea al `agentes.conf` y menciónalo en la lista de agentes de `_comun.md`.
+5. Prueba las herramientas sin Hyprland ni Claude: `tests/run.sh`.
 
 ### Límites conocidos
 - Cada agente es una sesión de Claude Code con su propio consumo: más agentes abiertos = más uso. Abre solo los que hagan falta.
 - El protocolo de mensajes es una **convención en prompt**, no algo que imponga el código; los modelos pueden desviarse, por eso las reglas son cortas y explícitas.
-- Si varios agentes tocan el mismo repo, la coordinación depende del orquestador (serializar) y de que los roles lo respeten.
+- `bloqueo` es por convención de directorio: no detecta que dos agentes estén en rutas distintas pero con cambios incompatibles; para eso está `worktree=1` + la integración del orquestador.
+- `restaurar` retoma la conversación por **nombre de sesión**; si hubo varias sesiones con el mismo nombre (p. ej. varios `orquestador`), retoma una de ellas. La parte que abre ventanas se probó con `hyprctl` y `claude` simulados, no en una sesión Hyprland real.
 - Requiere Hyprland (`hyprctl`) para lanzar/encontrar ventanas; en otro entorno habría que adaptar `agentes/bin/_lib.sh` y `lanzar`.

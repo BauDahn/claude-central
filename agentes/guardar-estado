@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# guardar-estado — escribe ~/agentes/estado/ESTADO.md: agentes abiertos + tablero de tareas.
+# Lo lee `central` al arrancar para saber qué estaba pasando. Corre solo con el timer (config/systemd).
+source "$(dirname "$(readlink -f "$0")")/bin/_lib.sh"
+mkdir -p "$ESTADO"; out="$ESTADO/ESTADO.md"
+{
+  echo "# Estado guardado — $(date '+%F %H:%M')"
+  echo; echo "## Agentes que estaban abiertos"
+  f="$(registro_abiertos)"
+  if [ -s "$f" ] && [ "$(jq 'length' "$f")" -gt 0 ]; then jq -r 'to_entries[]|"- \(.key) (workspace \(.value.workspace))"' "$f"; else echo "- ninguno"; fi
+  echo; echo "## Tareas"
+  "$ROOT/bin/tareas" resumen 2>/dev/null || echo "- (sin tablero)"
+  echo; echo "## Contexto cacheado desactualizado"
+  "$ROOT/bin/contexto-check" 2>/dev/null || true
+} > "$out.tmp" && mv "$out.tmp" "$out"
+echo "guardado en $out"

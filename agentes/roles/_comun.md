@@ -17,3 +17,9 @@ Convención de mensajes (primera línea):
 - `LISTO: <resumen corto> | archivos: <rutas>`  (agente → orquestador)
 Todo lo que sea para el usuario va a central con SendMessage, corto (no hablás por voz).
 Para agentes que no son el optimizador: no escribas en contexto/ salvo que sea tu propia salida pedida.
+
+## Herramientas compartidas (en tu PATH; tu nombre llega en $AGENTE)
+- **Tablero de tareas** `tareas`: antes de empezar una tarea asignada, `tareas tomar <ID> -p <proyecto>` (falla si otro ya la tiene o faltan dependencias); al terminar, `tareas listo <ID> -p <proyecto> --nota "<resumen>"`; si te bloqueás, `tareas bloquear <ID> --motivo "..."`. `tareas ls -p <proyecto>` muestra todo. El ID va en el `ASIGNA`.
+- **Bloqueos de archivo** (`bloqueo`): un hook toma el archivo automáticamente la primera vez que lo editás y lo suelta a los 30 min. Si te dice `BLOQUEADO`, otro agente lo está editando: no insistas; avisá al orquestador con `NECESITA:` o trabajá en otra cosa.
+- **Consumo** (`tokens`): `tokens --por agente` muestra cuánto gastó cada sesión. Si tu contexto pasa de ~150k tokens, avisá al orquestador: conviene `compactar` y seguir en una sesión nueva.
+

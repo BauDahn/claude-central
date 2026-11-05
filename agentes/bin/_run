@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
-# Corre DENTRO del kitty: arranca claude con nombre y prompt de rol.
+# Corre DENTRO del kitty: arranca claude con nombre, modelo y prompt de rol.
+# Opciones del 4º campo de agentes.conf: model=<alias>, worktree=1
+# RESTAURAR=1 -> intenta retomar la sesión con ese nombre antes de arrancar una nueva.
 export PATH="$HOME/.local/bin:$PATH"
 source "$(dirname "$0")/_lib.sh"
 nombre="$1"
-IFS="|" read -r _ dir rol < <(agente_linea "$nombre") || { echo "agente '$nombre' no existe"; read -r; exit 1; }
+IFS="|" read -r _ dir rol _ < <(agente_linea "$nombre") || { echo "agente '$nombre' no existe"; read -r; exit 1; }
 dir="${dir/#\~/$HOME}"
 cd "$dir" || exit 1
+export AGENTE="$nombre" AGENTES_HOME="$ROOT"
+
+args=(-n "$nombre")
+modelo="$(agente_opcion "$nombre" model)"; [ -n "$modelo" ] && args+=(--model "$modelo")
+# Aislamiento: cada agente con worktree trabaja en su propia rama/copia del repo (sin pisar a los demás)
+if [ "$(agente_opcion "$nombre" worktree)" = 1 ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  args+=(--worktree "$nombre")
+fi
+
+if [ "${RESTAURAR:-0}" = 1 ] && "$ROOT/bin/sesion-existe" "$nombre"; then
+  exec claude "${args[@]}" --resume "$nombre"
+fi
 prompt="$(cat "$ROOT/$rol" "$ROOT/roles/_comun.md")"
-exec claude -n "$nombre" "$prompt"
+exec claude "${args[@]}" "$prompt"
