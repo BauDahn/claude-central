@@ -114,7 +114,7 @@ def hypr_json(*args):
 
 
 def hypr_focus(address):
-    subprocess.run(["hyprctl", "dispatch", "focuswindow", f"address:{address}"],
+    subprocess.run([os.path.expanduser("~/.local/bin/hyprd"), "focuswindow", f"address:{address}"],
                    stdout=subprocess.DEVNULL, check=False)
 
 
@@ -141,7 +141,7 @@ def send_return(target=None):
     if t is None:
         subprocess.run(["notify-send", "-a", "Escucha", "No hay sesión de Claude abierta"], check=False)
         return False
-    subprocess.run(["hyprctl", "dispatch", "sendshortcut", f", Return, address:{t['address']}"],
+    subprocess.run([os.path.expanduser("~/.local/bin/hyprd"), "sendshortcut", f", Return, address:{t['address']}"],
                    stdout=subprocess.DEVNULL, check=False)
     return True
 
@@ -169,7 +169,7 @@ def type_text(text, enter=False, target_name=None):
     old = subprocess.run(["wl-paste", "-n"], capture_output=True).stdout
     subprocess.run(["wl-copy", "--", text], check=False)
     time.sleep(0.1)
-    subprocess.run(["hyprctl", "dispatch", "sendshortcut", "CTRL SHIFT, V, activewindow"],
+    subprocess.run([os.path.expanduser("~/.local/bin/hyprd"), "sendshortcut", "CTRL SHIFT, V, activewindow"],
                    stdout=subprocess.DEVNULL, check=False)
     time.sleep(0.4)
     subprocess.run(["wl-copy", "--"], input=old, check=False)

@@ -30,7 +30,7 @@ if [ "$SKIP_MODELS" != 1 ] && [ "$SKIP_VENV" != 1 ]; then
 fi
 
 echo "→ Comandos en $BIN"
-install -m755 "$HERE/bin/central" "$HERE/bin/escucha" "$BIN/"
+install -m755 "$HERE/bin/central" "$HERE/bin/escucha" "$HERE/bin/hyprd" "$BIN/"
 
 echo "→ Agentes en ~/agentes"
 mkdir -p "$HOME/agentes"

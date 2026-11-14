@@ -153,7 +153,7 @@ def focus_ws(t):
     """Al cambiar de destino por voz, llevar la vista al workspace de esa terminal."""
     try:
         if t and t.get("workspace", {}).get("id", 0) > 0:
-            subprocess.run(["hyprctl", "dispatch", "workspace", str(t["workspace"]["id"])],
+            subprocess.run([os.path.expanduser("~/.local/bin/hyprd"), "workspace", str(t["workspace"]["id"])],
                            stdout=subprocess.DEVNULL, check=False)
     except Exception as e:
         voice.log(f"listen: focus_ws error {e!r}")

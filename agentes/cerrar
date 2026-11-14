@@ -4,7 +4,7 @@ source "$(dirname "$(readlink -f "$0")")/bin/_lib.sh"
 n="$1"; [ -n "$n" ] || { echo "uso: cerrar <nombre>"; exit 2; }
 registro_del "$n"
 [ -n "$(agente_ventana "$n")" ] || { echo "'$n' no está abierto"; exit 0; }
-out="$(hyprctl dispatch "hl.dsp.window.close({ window = \"class:^agente-$n\$\" })" 2>&1)"
+out="$("$HOME/.local/bin/hyprd" closewindow "class:^agente-$n\$" 2>&1)"
 [ "$out" = ok ] || { echo "error al cerrar '$n': $out" >&2; exit 1; }
 for _ in $(seq 1 25); do [ -z "$(agente_ventana "$n")" ] && break; sleep 0.2; done
 echo "cerrado '$n'"
