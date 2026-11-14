@@ -30,7 +30,7 @@ if [ "$SKIP_MODELS" != 1 ] && [ "$SKIP_VENV" != 1 ]; then
 fi
 
 echo "→ Comandos en $BIN"
-install -m755 "$HERE/bin/escucha" "$BIN/"
+install -m755 "$HERE/bin/escucha" "$HERE/bin/central-abrir" "$HERE/bin/hyprd" "$BIN/"
 if command -v uv >/dev/null; then
   uv tool install --force --editable "$HERE[ui]" >/dev/null && echo "  central (CLI Python) instalado con uv"
 else
