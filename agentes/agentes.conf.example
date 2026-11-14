@@ -1,5 +1,5 @@
 # nombre|directorio|archivo de rol (relativo a ~/agentes)|opciones (opcional)
-# Opciones separadas por coma:  model=<opus|sonnet|haiku|nombre completo>   worktree=1
+# Opciones separadas por coma:  model=<opus|sonnet|haiku|nombre completo>   worktree=1   motor=codex [perfil=<rol>]  (sesión interactiva de Codex con ~/.codex/<rol>.config.toml)
 #   model     modelo de esa sesión (más barato para roles livianos, más fuerte para los críticos)
 #   worktree  la sesión trabaja en su propio git worktree/rama (solo si el directorio es un repo git)
 # Las líneas que empiezan con # se ignoran. Copiá este archivo a ~/agentes/agentes.conf y ajustá los directorios.

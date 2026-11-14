@@ -50,5 +50,36 @@ Configurá tus agentes en `~/agentes/agentes.conf` (hay un `.example`): una lín
 ### Variables útiles
 `CLAUDE_VOICE` (voz Kokoro), `CLAUDE_VOICE_SPEED`, `CLAUDE_VOICE_DUCK`, `CLAUDE_VOICE_BARGE`, `LISTEN_MODEL` (def. `small`), `LISTEN_LANG` (def. `es`), `LISTEN_PROMPT` (pista para Whisper; útil para acentos), `HOY_CALENDARIO`, `TZ_LOCAL`.
 
+## Codex como ejecutor (`cx`)
+
+Claude planifica y revisa; el código lo escribe [Codex](https://developers.openai.com/codex) con el modelo adecuado a cada rol, así no gastás tokens de Claude en escribir código.
+
+```bash
+cx roles                                   # rol → modelo, esfuerzo, sandbox (perfiles en ~/.codex/<rol>.config.toml)
+cx backend -C ~/proyecto -p proyecto -t 3 "tarea concreta, criterio de hecho y cómo verificar"
+cx seguir <hilo> "corregí X"               # mismo hilo, reusa la caché
+cx log                                     # uso por rol (tokens, tiempo, resultados)
+```
+
+`cx` devuelve solo un resumen (`LISTO`/`BLOQUEADO`/`NECESITA` + archivos + verificado), toma y cierra la tarea del tablero, y suelta los bloqueos al terminar. Requiere `npm i -g @openai/codex && codex login`; el instalador copia los perfiles (orquestador/seguridad/ideas → esfuerzo alto, backend/frontend/revisor → medio, optimizador/rapido → modelo chico). Con `motor=codex` en `agentes.conf`, `lanzar` abre una sesión interactiva de Codex en vez de Claude.
+
+## Equipo multi-máquina (`equipo`)
+
+Varias personas, cada una con su máquina y su `central`, coordinadas por **un central orquestador**. Lo compartido vive en un repo de GitHub (lo único que ven todas las máquinas):
+
+```bash
+# en cada máquina, una vez (gh autenticado con acceso al repo):
+equipo init --maquina ana --rol orquestador --repo org/proyecto --dir ~/proyectos/proyecto
+equipo init --maquina beto --rol miembro    --repo org/proyecto --dir ~/proyectos/proyecto
+
+equipo ver                       # (orquestador) estado de cada máquina, issues por máquina, PRs abiertos
+equipo asignar beto "título" --cuerpo "qué, criterio de hecho"   # un issue = una rama = un PR
+equipo mias                      # issues asignados a esta máquina
+equipo avisar ana "PR #12 listo" # mensajes entre máquinas
+equipo mensajes                  # mensajes nuevos para esta máquina
+```
+
+Cada máquina publica su estado (rama, cambios sin subir, agentes abiertos, últimas tareas de Codex) en un issue fijo del repo, cada 10 minutos con el timer de `guardar-estado`. El `CLAUDE.md` de central explica al Claude qué hacer según su rol.
+
 ## Licencia
 MIT. Los modelos de Kokoro y Whisper tienen sus propias licencias.

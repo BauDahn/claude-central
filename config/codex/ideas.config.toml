@@ -1,0 +1,4 @@
+# Perfil de agente (ideas). Lo usa ~/agentes/bin/cx. Equivale a: opus en Claude (haiku antes)
+model = "gpt-6-luna"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"

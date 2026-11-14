@@ -10,6 +10,16 @@ dir="${dir/#\~/$HOME}"
 cd "$dir" || exit 1
 export AGENTE="$nombre" AGENTES_HOME="$ROOT"
 
+# motor=codex: abre una sesión interactiva de Codex con el perfil del rol (~/.codex/<perfil>.config.toml).
+# El perfil sale de perfil=<x> o, si no está, del nombre del archivo de rol (roles/backend.md -> backend).
+if [ "$(agente_opcion "$nombre" motor)" = codex ]; then
+  for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$d:$PATH"; done
+  perfil="$(agente_opcion "$nombre" perfil)"; [ -n "$perfil" ] || perfil="$(basename "$rol" .md)"
+  exec codex -p "$perfil" "$(cat "$ROOT/$rol" "$ROOT/roles/_codex.md")
+
+Sesión interactiva: el usuario te habla directamente en esta ventana. Esperá la tarea."
+fi
+
 args=(-n "$nombre")
 modelo="$(agente_opcion "$nombre" model)"; [ -n "$modelo" ] && args+=(--model "$modelo")
 # Aislamiento: cada agente con worktree trabaja en su propia rama/copia del repo (sin pisar a los demás)

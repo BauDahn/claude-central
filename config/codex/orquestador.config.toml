@@ -1,0 +1,8 @@
+# Perfil de agente (orquestador). Lo usa ~/agentes/bin/cx. Equivale a: opus en Claude
+model = "gpt-6-luna"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+writable_roots = ["__HOME__/agentes/locks", "__HOME__/agentes/contexto", "__HOME__/.cache/uv"]
+network_access = true

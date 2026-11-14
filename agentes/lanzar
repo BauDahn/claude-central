@@ -10,6 +10,11 @@ if v="$(agente_ventana "$n")" && [ -n "$v" ]; then
   echo "'$n' ya está abierto en workspace $(jq -r '.workspace.name' <<<"$v")"; exit 0
 fi
 [ -n "$ws" ] || ws="$(hyprctl activeworkspace -j | jq -r '.id')"
-hyprctl dispatch exec "[workspace $ws silent] env RESTAURAR=${RESTAURAR:-0} kitty --class agente-$n --title agente-$n -d '$dir' '$ROOT/bin/_run' '$n'" >/dev/null
+cmd="env RESTAURAR=${RESTAURAR:-0} kitty --class agente-$n --title agente-$n -d '$dir' '$ROOT/bin/_run' '$n'"
+# Hyprland >= 0.57 usa Lua: el comando va como string largo de Lua ([==[...]==]) para no escapar comillas.
+out="$(hyprctl dispatch "hl.dsp.exec_cmd([==[$cmd]==], { workspace = \"$ws silent\" })" 2>&1)"
+[ "$out" = ok ] || { echo "error al lanzar '$n': $out" >&2; exit 1; }
+for _ in $(seq 1 25); do [ -n "$(agente_ventana "$n")" ] && break; sleep 0.2; done
+[ -n "$(agente_ventana "$n")" ] || { echo "error: la ventana de '$n' no apareció" >&2; exit 1; }
 registro_set "$n" "$ws"
 echo "lanzado '$n' en workspace $ws"

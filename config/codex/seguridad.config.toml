@@ -1,0 +1,4 @@
+# Perfil de agente (seguridad). Lo usa ~/agentes/bin/cx. Equivale a: opus en Claude
+model = "gpt-6-luna"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"

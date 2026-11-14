@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""equipo — coordina varias máquinas (cada una con su Claude central) a través de un repo de GitHub.
+
+Estado compartido en GitHub (lo único que ven todas las máquinas):
+  - Un issue "Estado del equipo" (label equipo-estado): cada máquina edita SU comentario con su estado.
+  - Asignaciones: issues con label maquina:<nombre>.
+  - Mensajes entre máquinas: comentarios en el issue de estado dirigidos a una máquina.
+
+  equipo init --maquina <nombre> --rol orquestador|miembro --repo <dueño/repo> --dir <ruta del proyecto>
+  equipo publicar                      # sube el estado de esta máquina (lo corre el timer cada 10 min)
+  equipo ver                           # estado de todas las máquinas + issues por máquina + PRs abiertos
+  equipo asignar <maquina> "título" [--cuerpo "..."]   # crea un issue para esa máquina
+  equipo mias                          # issues abiertos asignados a esta máquina
+  equipo avisar <maquina|todos> "mensaje"              # mensaje a otra máquina
+  equipo mensajes [--todos]            # mensajes nuevos para esta máquina (marca como leídos)
+
+Config: ~/agentes/equipo.conf (KEY=VALUE). Requiere `gh` autenticado con acceso al repo.
+"""
+import argparse, json, os, re, socket, subprocess, sys, time
+from pathlib import Path
+
+HOME = Path(os.environ.get("AGENTES_HOME", Path.home() / "agentes"))
+CONF = HOME / "equipo.conf"
+VISTO = HOME / "estado" / "equipo-visto.json"
+LABEL_ESTADO = "equipo-estado"
+TITULO_ESTADO = "🛰 Estado del equipo"
+
+
+def conf():
+    if not CONF.exists():
+        sys.exit("equipo: falta ~/agentes/equipo.conf. Corré: equipo init --maquina <nombre> --rol orquestador|miembro --repo <dueño/repo> --dir <ruta>")
+    d = {}
+    for line in CONF.read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            d[k.strip()] = os.path.expanduser(v.strip())
+    for k in ("MAQUINA", "ROL", "REPO"):
+        if not d.get(k):
+            sys.exit(f"equipo: falta {k} en {CONF}")
+    return d
+
+
+def sh(cmd, cwd=None, check=False):
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if check and r.returncode != 0:
+        sys.exit(f"equipo: falló {' '.join(cmd[:4])}…: {r.stderr.strip()[:300]}")
+    return r.stdout.strip()
+
+
+def gh_json(args, repo):
+    out = sh(["gh"] + args + ["-R", repo], check=True)
+    return json.loads(out or "[]")
+
+
+def api(path, method="GET", **fields):
+    cmd = ["gh", "api", path, "-X", method]
+    for k, v in fields.items():
+        cmd += ["-f", f"{k}={v}"]
+    out = sh(cmd, check=True)
+    return json.loads(out) if out else None
+
+
+def api_lista(path):
+    out = sh(["gh", "api", path, "--paginate"], check=True)
+    # --paginate concatena arrays JSON: "[...][...]"
+    return [x for chunk in re.split(r"\]\s*\[", out.strip()[1:-1]) if chunk for x in json.loads(f"[{chunk}]")] if out else []
+
+
+def issue_estado(repo, crear=True):
+    fijo = conf_opcional().get("ISSUE")
+    if fijo:
+        return int(fijo)
+    lst = gh_json(["issue", "list", "--label", LABEL_ESTADO, "--state", "open", "--json", "number"], repo)
+    if lst:
+        return lst[0]["number"]
+    if not crear:
+        return None
+    sh(["gh", "label", "create", LABEL_ESTADO, "-R", repo, "--color", "5319e7", "--force"])
+    url = sh(["gh", "issue", "create", "-R", repo, "--title", TITULO_ESTADO, "--label", LABEL_ESTADO, "--body",
+              "Cada máquina del equipo mantiene acá su estado (un comentario por máquina, lo actualiza `equipo publicar`). "
+              "Los mensajes entre máquinas también van acá. No borrar."], check=True)
+    n = int(url.rstrip("/").split("/")[-1])
+    if CONF.exists():
+        CONF.write_text(CONF.read_text().rstrip("\n") + f"\nISSUE={n}\n")
+    return n
+
+
+def conf_opcional():
+    try:
+        return {k.strip(): v.strip() for k, v in (l.split("=", 1) for l in CONF.read_text().splitlines()
+                                                    if "=" in l and not l.lstrip().startswith("#"))}
+    except OSError:
+        return {}
+
+
+def marca(maquina):
+    return f"<!-- equipo:estado:{maquina} -->"
+
+
+# ---------- recolectar estado local ----------
+def estado_local(c):
+    m, lineas = c["MAQUINA"], []
+    lineas.append(f"{marca(m)}\n### 🖥 {m} · {c['ROL']} · {time.strftime('%d/%m %H:%M')}")
+    lineas.append(f"- host `{socket.gethostname()}` · git `{sh(['git', 'config', 'user.name']) or '?'}`")
+    d = c.get("DIR")
+    if d and Path(d).is_dir():
+        rama = sh(["git", "branch", "--show-current"], cwd=d)
+        cambios = len([l for l in sh(["git", "status", "--porcelain"], cwd=d).splitlines() if l.strip()])
+        ult = sh(["git", "log", "-1", "--format=%h %s (%cr)"], cwd=d)
+        ab = sh(["git", "rev-list", "--left-right", "--count", f"origin/main...{rama}"], cwd=d) if rama else ""
+        detras, adelante = (ab.split() + ["?", "?"])[:2] if ab else ("?", "?")
+        lineas.append(f"- proyecto `{Path(d).name}` · rama **{rama or '(detached)'}** · {cambios} archivos sin commitear · "
+                      f"{adelante} commits sin subir a main / {detras} de main sin traer")
+        lineas.append(f"- último commit: {ult}")
+    reg = HOME / "estado" / "abiertos.json"
+    abiertos = list(json.loads(reg.read_text()).keys()) if reg.exists() and reg.read_text().strip() else []
+    lineas.append(f"- agentes abiertos: {', '.join(abiertos) or 'ninguno'}")
+    en_curso = sh([str(HOME / "bin" / "tareas"), "ls", "--estado", "en_curso"]) if (HOME / "bin" / "tareas").exists() else ""
+    if en_curso:
+        lineas.append("- tareas en curso (tablero local):\n" + "\n".join(f"  - {l.strip()}" for l in en_curso.splitlines()[:8]))
+    corridas = []
+    for f in [HOME / "estado" / "codex.jsonl"] + ([Path(d) / ".agents" / "log"] if d else []):
+        files = sorted(f.glob("*.jsonl")) if f.is_dir() else ([f] if f.exists() else [])
+        for ff in files:
+            for l in ff.read_text().splitlines()[-20:]:
+                try:
+                    corridas.append(json.loads(l))
+                except ValueError:
+                    pass
+    corridas.sort(key=lambda r: r.get("ts", 0))
+    if corridas:
+        lineas.append("- últimas tareas de Codex:\n" + "\n".join(
+            f"  - {time.strftime('%H:%M', time.localtime(r['ts']))} [{r.get('rol')}] {r.get('tarea', '')[:70]} → {r.get('resultado', '')[:60]}"
+            for r in corridas[-5:]))
+    return "\n".join(lineas)
+
+
+# ---------- comandos ----------
+def cmd_init(a):
+    previo = conf_opcional().get("ISSUE") if conf_opcional().get("REPO") == a.repo else None
+    CONF.write_text(f"# Config de `equipo` (ver equipo -h)\nMAQUINA={a.maquina}\nROL={a.rol}\nREPO={a.repo}\nDIR={a.dir}\n"
+                    + (f"ISSUE={previo}\n" if previo else ""))
+    for nombre, color in ((LABEL_ESTADO, "5319e7"), (f"maquina:{a.maquina}", "0e8a16")):
+        sh(["gh", "label", "create", nombre, "-R", a.repo, "--color", color, "--force"])
+    n = issue_estado(a.repo)
+    print(f"equipo: configurado {a.maquina} ({a.rol}) en {a.repo}; issue de estado #{n}")
+    cmd_publicar(None)
+
+
+def cmd_publicar(_):
+    c = conf()
+    n = issue_estado(c["REPO"])
+    cuerpo = estado_local(c)
+    coms = api_lista(f"repos/{c['REPO']}/issues/{n}/comments")
+    mio = next((x for x in coms if marca(c["MAQUINA"]) in x["body"]), None)
+    if mio:
+        api(f"repos/{c['REPO']}/issues/comments/{mio['id']}", "PATCH", body=cuerpo)
+    else:
+        api(f"repos/{c['REPO']}/issues/{n}/comments", "POST", body=cuerpo)
+    print(f"equipo: estado de {c['MAQUINA']} publicado en #{n}")
+
+
+def cmd_ver(_):
+    c = conf()
+    n = issue_estado(c["REPO"], crear=False)
+    if n:
+        coms = api_lista(f"repos/{c['REPO']}/issues/{n}/comments")
+        estados = [x for x in coms if "<!-- equipo:estado:" in x["body"]]
+        print(f"# Máquinas (issue #{n})\n")
+        for x in estados:
+            edad = (time.time() - time.mktime(time.strptime(x["updated_at"], "%Y-%m-%dT%H:%M:%SZ")) + time.timezone) / 60
+            print(re.sub(r"<!--.*?-->\n?", "", x["body"]).strip() + f"\n  _(actualizado hace {edad:.0f} min)_\n")
+    issues = gh_json(["issue", "list", "--state", "open", "--json", "number,title,labels,updatedAt", "--limit", "100"], c["REPO"])
+    por = {}
+    for i in issues:
+        labs = [l["name"] for l in i["labels"]]
+        if LABEL_ESTADO in labs:
+            continue
+        maq = next((l.split(":", 1)[1] for l in labs if l.startswith("maquina:")), "sin asignar")
+        por.setdefault(maq, []).append(i)
+    print("# Issues abiertos por máquina")
+    for maq, lst in sorted(por.items()):
+        print(f"- **{maq}**: " + "; ".join(f"#{i['number']} {i['title']}" for i in lst))
+    prs = gh_json(["pr", "list", "--state", "open", "--json", "number,title,headRefName,author,isDraft,reviewDecision"], c["REPO"])
+    print("\n# PRs abiertos")
+    for p in prs or []:
+        print(f"- #{p['number']} {p['title']} ({p['headRefName']}, {p['author']['login']}{', borrador' if p['isDraft'] else ''}"
+              f"{', ' + p['reviewDecision'] if p.get('reviewDecision') else ''})")
+    if not prs:
+        print("- ninguno")
+
+
+def cmd_asignar(a):
+    c = conf()
+    sh(["gh", "label", "create", f"maquina:{a.maquina}", "-R", c["REPO"], "--color", "0e8a16", "--force"])
+    url = sh(["gh", "issue", "create", "-R", c["REPO"], "--title", a.titulo, "--label", f"maquina:{a.maquina}",
+              "--body", (a.cuerpo or "") + f"\n\n_Asignado por {c['MAQUINA']} con `equipo asignar`._"], check=True)
+    print(url)
+
+
+def cmd_mias(_):
+    c = conf()
+    for i in gh_json(["issue", "list", "--state", "open", "--label", f"maquina:{c['MAQUINA']}", "--json", "number,title,url"], c["REPO"]):
+        print(f"#{i['number']} {i['title']}  {i['url']}")
+
+
+def cmd_avisar(a):
+    c = conf()
+    n = issue_estado(c["REPO"])
+    api(f"repos/{c['REPO']}/issues/{n}/comments", "POST",
+        body=f"<!-- equipo:msg:{a.para} -->\n**{c['MAQUINA']} → {a.para}:** {a.mensaje}")
+    print(f"equipo: mensaje enviado a {a.para}")
+
+
+def cmd_mensajes(a):
+    c = conf()
+    n = issue_estado(c["REPO"], crear=False)
+    if not n:
+        print("equipo: no hay issue de estado todavía"); return
+    visto = json.loads(VISTO.read_text()) if VISTO.exists() else {}
+    ultimo = visto.get(str(n), 0)
+    nuevos = []
+    for x in api_lista(f"repos/{c['REPO']}/issues/{n}/comments"):
+        m = re.match(r"<!-- equipo:msg:(\S+) -->", x["body"])
+        if m and m.group(1) in (c["MAQUINA"], "todos") and (a.todos or x["id"] > ultimo):
+            nuevos.append(x)
+    for x in nuevos:
+        print(re.sub(r"<!--.*?-->\n?", "", x["body"]).strip() + f"  ({x['created_at'][11:16]} UTC)")
+    if not nuevos:
+        print("equipo: sin mensajes nuevos")
+    if nuevos and not a.todos:
+        visto[str(n)] = max(x["id"] for x in nuevos)
+        VISTO.parent.mkdir(parents=True, exist_ok=True)
+        VISTO.write_text(json.dumps(visto))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="equipo", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    s = ap.add_subparsers(dest="cmd", required=True)
+    p = s.add_parser("init"); p.add_argument("--maquina", required=True); p.add_argument("--rol", choices=["orquestador", "miembro"], required=True)
+    p.add_argument("--repo", required=True); p.add_argument("--dir", required=True); p.set_defaults(f=cmd_init)
+    s.add_parser("publicar").set_defaults(f=cmd_publicar)
+    s.add_parser("ver").set_defaults(f=cmd_ver)
+    p = s.add_parser("asignar"); p.add_argument("maquina"); p.add_argument("titulo"); p.add_argument("--cuerpo"); p.set_defaults(f=cmd_asignar)
+    s.add_parser("mias").set_defaults(f=cmd_mias)
+    p = s.add_parser("avisar"); p.add_argument("para"); p.add_argument("mensaje"); p.set_defaults(f=cmd_avisar)
+    p = s.add_parser("mensajes"); p.add_argument("--todos", action="store_true"); p.set_defaults(f=cmd_mensajes)
+    a = ap.parse_args()
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()

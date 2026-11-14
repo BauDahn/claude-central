@@ -14,3 +14,5 @@ mkdir -p "$ESTADO"; out="$ESTADO/ESTADO.md"
   "$ROOT/bin/contexto-check" 2>/dev/null || true
 } > "$out.tmp" && mv "$out.tmp" "$out"
 echo "guardado en $out"
+# Multi-máquina: si esta máquina está en un equipo (equipo.conf), publica su estado en GitHub.
+[ -f "$ROOT/equipo.conf" ] && "$ROOT/bin/equipo" publicar >/dev/null 2>&1 || true

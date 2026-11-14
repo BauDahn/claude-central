@@ -39,9 +39,12 @@ cp -r "$HERE/agentes/roles" "$HERE/agentes/bin" "$HOME/agentes/"
 install -m755 "$HERE/agentes/lanzar" "$HERE/agentes/cerrar" "$HERE/agentes/listar" "$HERE/agentes/restaurar" "$HERE/agentes/guardar-estado" "$HOME/agentes/"
 chmod +x "$HOME/agentes/bin/"*
 mkdir -p "$HOME/agentes/estado" "$HOME/agentes/tareas" "$HOME/agentes/locks"
-for t in tareas bloqueo tokens compactar contexto-check; do ln -sf "$HOME/agentes/bin/$t" "$BIN/$t"; done
+for t in tareas bloqueo tokens compactar contexto-check cx equipo; do ln -sf "$HOME/agentes/bin/$t" "$BIN/$t"; done
 mkdir -p "$HOME/.config/systemd/user"
 cp "$HERE"/config/systemd/guardar-estado.* "$HOME/.config/systemd/user/"
+if command -v systemctl >/dev/null; then
+  systemctl --user daemon-reload && systemctl --user enable --now guardar-estado.timer >/dev/null 2>&1 || echo "  Aviso: no pude activar el timer de guardar-estado"
+fi
 [ -f "$HOME/agentes/agentes.conf" ] || cp "$HERE/agentes/agentes.conf.example" "$HOME/agentes/agentes.conf"
 chmod +x "$HOME/agentes/bin/_run"
 
@@ -49,6 +52,18 @@ echo "→ Claude coordinador en ~/central"
 mkdir -p "$HOME/central"
 [ -f "$HOME/central/CLAUDE.md" ] || cp "$HERE/central/CLAUDE.md" "$HOME/central/CLAUDE.md"
 install -m755 "$HERE/central/hoy" "$HOME/central/hoy"
+grep -q 'equipo:inicio' "$HOME/central/CLAUDE.md" || { echo; cat "$HERE/config/central-equipo.md"; } >> "$HOME/central/CLAUDE.md"
+
+echo "→ Perfiles de Codex por rol (~/.codex, para cx)"
+if [ -d "$HOME/.codex" ] || command -v codex >/dev/null; then
+  mkdir -p "$HOME/.codex"
+  for f in "$HERE"/config/codex/*.config.toml; do
+    dest="$HOME/.codex/$(basename "$f")"
+    [ -f "$dest" ] || sed "s#__HOME__#$HOME#g" "$f" > "$dest"
+  done
+else
+  echo "  Codex no está instalado: salteo (npm i -g @openai/codex && codex login, y re-ejecutá el instalador)"
+fi
 
 echo "→ Instrucciones globales de voz (~/.claude/CLAUDE.md)"
 mkdir -p "$HOME/.claude"
@@ -78,6 +93,7 @@ PY
 echo
 echo "Listo. Probalo:  $VOICE_DIR/venv/bin/python $VOICE_DIR/voice.py say \"hello\""
 echo "Coordinador:     central     |  Escucha: escucha on     |  Agentes: ~/agentes/lanzar <nombre>"
+echo "Codex:           cx roles    |  Equipo multi-máquina: equipo init --maquina <nombre> --rol orquestador|miembro --repo <dueño/repo> --dir <proyecto>"
 echo "Opcional (guardado automático del estado cada 10 min): systemctl --user enable --now guardar-estado.timer"
 echo "Opcional (reabrir agentes al iniciar sesión):          exec-once = ~/agentes/restaurar   (en hyprland.conf)"
 echo "Asegurate de que ~/.local/bin esté en tu PATH."
