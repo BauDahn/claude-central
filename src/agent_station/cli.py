@@ -1,0 +1,214 @@
+"""station — CLI de agent-station.
+
+  station [flags de claude]                abre Claude Code como agente PRINCIPAL (con station, roles y reglas de optimización)
+
+  station msg enviar <de> <a> "texto"      escribe un mensaje en el buzón (cualquier agente, cualquier backend)
+  station msg leer [agente] [--desde 2d]
+  station bitacora [--desde 24h] [--agente X] [--completo] [--seguir]
+  station optimizador [--desde 7d]         qué logró el optimizador (pedidos, entregas, tokens ahorrados)
+  station uso [--desde 7d] [--por backend|agente|modelo|proyecto]
+  station permisos ver [rol] | dar <rol> <regla> [--hasta 1h] | quitar <rol> <regla>   permisos por agente (solo subagentes)
+  station importar central                trae a este registro lo que ya existe en la máquina (Codex vía cx, sesiones Claude)
+"""
+import argparse, datetime as dt, re, sys, time, uuid
+from pathlib import Path
+
+from . import buzon, config, ejecutor, eventos, importar, lanzar, permisos, uso
+
+
+def desde_ts(s: str) -> float:
+    m = re.fullmatch(r"(\d+)([mhd])", s)
+    if m: return time.time() - int(m[1]) * {"m": 60, "h": 3600, "d": 86400}[m[2]]
+    return dt.datetime.fromisoformat(s).timestamp()
+
+
+def fmt(ev: dict, completo: bool) -> str:
+    t = dt.datetime.fromtimestamp(ev["ts"]).strftime("%m-%d %H:%M:%S")
+    if ev["tipo"] == "msg":
+        txt = ev["cuerpo"] if completo else " ".join(ev["cuerpo"].split())
+        if not completo and len(txt) > 220: txt = txt[:220] + "…"
+        return f"{t}  {ev['de']} → {ev['a']}  {txt}"
+    if ev["tipo"] == "uso":
+        return (f"{t}  [{ev.get('backend')}] {ev.get('agente')} · {ev.get('modelo')} · in {ev.get('input', 0):,} "
+                f"(caché {ev.get('cached', 0):,}) · out {ev.get('output', 0):,} · {ev.get('seg', 0):.0f}s  {ev.get('resultado', '')[:100]}")
+    if ev["tipo"] == "permiso":
+        h = ev.get("hasta")
+        v = "" if ev.get("accion") != "dar" else (" hasta " + dt.datetime.fromtimestamp(h).strftime("%m-%d %H:%M") if h else " (siempre)")
+        return f"{t}  [permiso] {ev.get('por', '?')}: {ev.get('accion')} {ev.get('regla')} a {ev.get('rol')}{v}"
+    return f"{t}  {ev['tipo']}"
+
+
+def cmd_bitacora(a):
+    desde = desde_ts(a.desde)
+    sel = lambda: [e for e in eventos.leer(desde) if e["tipo"] in ("msg", "uso", "permiso")
+                   and (not a.agente or a.agente in (e.get("de"), e.get("a"), e.get("agente"), e.get("agente", "").removesuffix("-codex")))]
+    evs = sorted(sel(), key=lambda e: e["ts"])
+    for e in evs: print(fmt(e, a.completo))
+    if not evs and not a.seguir: print("(sin eventos en ese período; ¿corriste `station importar central`?)")
+    if a.seguir:
+        ult = evs[-1]["ts"] if evs else time.time()
+        try:
+            while True:
+                time.sleep(1.5)
+                for e in sorted(sel(), key=lambda e: e["ts"]):
+                    if e["ts"] > ult: print(fmt(e, a.completo), flush=True); ult = e["ts"]
+        except KeyboardInterrupt: pass
+
+
+def cmd_optimizador(a):
+    desde = desde_ts(a.desde)
+    msgs = sorted(eventos.leer(desde, "msg"), key=lambda m: m["ts"])
+    pedidos = [m for m in msgs if m["a"] == "optimizador" and buzon.prefijo(m["cuerpo"]) == "PEDIR-CONTEXTO"]
+    listos = [m for m in msgs if m["de"] == "optimizador" and buzon.prefijo(m["cuerpo"]) == "CONTEXTO-LISTO"]
+    antes = despues = n = 0
+    lat = []
+    for p in pedidos:
+        s = next((l for l in listos if l["ts"] >= p["ts"]), None)
+        if s: lat.append(s["ts"] - p["ts"])
+    for l in listos:
+        f = re.search(r"[Ff]uente\s*[≈~]\s*([\d.,]+k?)\s*tokens?\s*[→>-]+\s*~?([\d.,]+k?)", l["cuerpo"])
+        if f and (x := buzon.tokens_declarados(f[1])) and (y := buzon.tokens_declarados(f[2])): antes += x; despues += y; n += 1
+    print(f"Optimizador — desde {dt.datetime.fromtimestamp(desde):%Y-%m-%d}")
+    print(f"  pedidos: {len(pedidos)}  entregas: {len(listos)}  latencia mediana: " + (f"{sorted(lat)[len(lat)//2]:.0f}s" if lat else "n/d"))
+    if n: print(f"  compresión declarada ({n} entregas): ~{antes:,.0f} → ~{despues:,.0f} tokens (x{antes/max(despues,1):.0f}; ahorro ≈ {antes-despues:,.0f} por lectura)")
+    else: print("  compresión declarada: ninguna entrega trae «Fuente ≈N tokens → ~M»")
+    for l in listos:
+        print(f"  {dt.datetime.fromtimestamp(l['ts']):%m-%d %H:%M} → {l['a']:<12} {' '.join(l['cuerpo'].split())[:110]}")
+
+
+def cmd_uso(a):
+    if a.reiniciar:
+        uso.reiniciar()
+        print("consumo reiniciado a cero")
+        return
+    r = uso.resumen(desde_ts(a.desde), a.por)
+    print(f"{a.por:<18} {'tareas':>6} {'in':>11} {'caché':>11} {'out':>9} {'min':>6}")
+    for k, t in sorted(r.items(), key=lambda x: -x[1]["input"]):
+        print(f"{k:<18} {t['tareas']:>6} {t['input']:>11,} {t['cached']:>11,} {t['output']:>9,} {t['seg']/60:>6.1f}")
+
+
+def cmd_permisos(a):
+    if a.sub == "ver":
+        for n in [a.rol] if a.rol else [r.nombre for r in config.listar_roles()]: print(permisos.describir(n))
+        if not a.rol:
+            cfg = permisos.principal()
+            print("principal (lo definís vos en permisos.toml): comandos " + ", ".join(cfg["comandos"]) + (" · denegar " + ", ".join(cfg["denegar"]) if cfg["denegar"] else ""))
+    elif a.sub == "dar":
+        if a.rol not in permisos.PRINCIPAL: config.cargar_rol(a.rol)   # falla si el rol no existe
+        c = permisos.dar(a.rol, a.regla, a.hasta)
+        print(f"ok: {a.rol} + {c['regla']} (" + ("siempre" if c["hasta"] is None else "hasta " + dt.datetime.fromtimestamp(c["hasta"]).strftime("%m-%d %H:%M")) + ")")
+    else:
+        n = permisos.quitar(a.rol, a.regla)
+        print(f"quitadas: {n}" + ("" if n else " (solo se quitan concesiones; el perfil base se edita en permisos.toml)"))
+
+
+def config_backends():
+    from .backends import BACKENDS
+    return BACKENDS
+
+
+def listar_modelos():
+    for m in config.catalogo_modelos():
+        print(f"{m['id']:<24} {m['backend']:<8} costo {m['costo']:<6} {m['para-que-sirve']}")
+
+
+def _propuesta(id_):
+    return next((e for e in eventos.leer(tipo="propuesta") if e.get("id") == id_), None)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="station"); sub = ap.add_subparsers(dest="cmd")
+    m = sub.add_parser("msg").add_subparsers(dest="sub", required=True)
+    e = m.add_parser("enviar"); e.add_argument("de"); e.add_argument("a"); e.add_argument("texto")
+    l = m.add_parser("leer"); l.add_argument("agente", nargs="?"); l.add_argument("--desde", default="24h")
+    b = sub.add_parser("bitacora"); b.add_argument("--desde", default="24h"); b.add_argument("--agente")
+    b.add_argument("--completo", action="store_true"); b.add_argument("--seguir", action="store_true")
+    o = sub.add_parser("optimizador"); o.add_argument("--desde", default="7d")
+    u = sub.add_parser("uso"); u.add_argument("--desde", default="7d"); u.add_argument("--por", default="backend", choices=["backend", "agente", "modelo", "proyecto"]); u.add_argument("--reiniciar", action="store_true")
+    i = sub.add_parser("importar"); i.add_argument("origen", choices=["central"])
+    r = sub.add_parser("correr"); r.add_argument("rol"); r.add_argument("tarea"); r.add_argument("-C", default=".")
+    r.add_argument("-p", "--proyecto"); r.add_argument("--de", default=None, help="quién delega (por defecto, el agente que te lanzó)")
+    r.add_argument("--backend", choices=list(config_backends())); r.add_argument("--modelo"); r.add_argument("--propuesta"); r.add_argument("--escribir", choices=["si", "no"])
+    r.add_argument("--ligero", choices=["si", "no", "lectura"], help="claude sin herramientas (si), con todas (no) o solo Read para imágenes (lectura)")
+    r.add_argument("--simular", action="store_true", help="solo imprime el prompt que recibiría el modelo (no llama a nadie)")
+    pm = sub.add_parser("permisos").add_subparsers(dest="sub", required=True)
+    pv = pm.add_parser("ver"); pv.add_argument("rol", nargs="?")
+    pd = pm.add_parser("dar"); pd.add_argument("rol"); pd.add_argument("regla"); pd.add_argument("--hasta", default="1h", help="30m, 1h, 2d o siempre (def. 1h)")
+    pq = pm.add_parser("quitar"); pq.add_argument("rol"); pq.add_argument("regla")
+    sub.add_parser("roles")
+    sub.add_parser("modelos")
+    p = sub.add_parser("proponer"); p.add_argument("funcion"); p.add_argument("--modelo", required=True); p.add_argument("--motivo", required=True); p.add_argument("--tarea", required=True)
+    apv = sub.add_parser("aprobar"); apv.add_argument("id"); apv.add_argument("--modelo")
+    rej = sub.add_parser("rechazar"); rej.add_argument("id")
+    vz = sub.add_parser("voz", help="TTS Kokoro y dictado/escucha Whisper local").add_subparsers(dest="sub", required=True)
+    vd = vz.add_parser("decir"); vd.add_argument("texto", nargs="+"); vd.add_argument("--voz", default="af_heart"); vd.add_argument("--velocidad", type=float, default=1.05); vd.add_argument("--forzar", action="store_true")
+    vz.add_parser("parar")
+    vdi = vz.add_parser("dictar"); vdi.add_argument("--idioma", default="es"); vdi.add_argument("--modelo", default="small"); vdi.add_argument("--escribir", action="store_true")
+    ves = vz.add_parser("escuchar"); ves.add_argument("--idioma", default="es"); ves.add_argument("--modelo", default="small"); ves.add_argument("--dry", action="store_true")
+    vhk = vz.add_parser("hook"); vhk.add_argument("modo", choices=["register", "stop", "early", "speak"])
+    vz.add_parser("estado")
+    sub.add_parser("ui", help="abre la interfaz visual (requiere PyQt6)")
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or (argv[0] not in sub.choices and argv[0] not in ("-h", "--help")):
+        lanzar.lanzar(argv); return              # sin subcomando: abre Claude Code como agente principal (lo demás va a claude)
+    a = ap.parse_args(argv)
+    if a.cmd == "msg" and a.sub == "enviar": buzon.enviar(a.de, a.a, a.texto); print("ok")
+    elif a.cmd == "msg":
+        for ev in buzon.leer(a.agente, desde_ts(a.desde)): print(fmt(ev, True))
+    elif a.cmd == "bitacora": cmd_bitacora(a)
+    elif a.cmd == "permisos": cmd_permisos(a)
+    elif a.cmd == "optimizador": cmd_optimizador(a)
+    elif a.cmd == "uso": cmd_uso(a)
+    elif a.cmd == "importar": print("importado:", importar.desde_central())
+    elif a.cmd == "ui":
+        try: from .gui.main import main as ui_main
+        except ImportError as e: sys.exit(f"[station] falta PyQt6 para la interfaz ({e}). Instalá: uv tool install --reinstall '.[ui]'")
+        sys.exit(ui_main())
+    elif a.cmd == "voz":
+        from .voz import cli_voz, motor
+        if a.sub == "decir":
+            cli_voz._run_worker(["--oneshot", "speak", "--text", " ".join(a.texto), "--voice", a.voz, "--speed", str(a.velocidad), *(["--force"] if a.forzar else [])])
+        elif a.sub == "parar":
+            motor.stop_detached_pid()
+        elif a.sub == "dictar":
+            cli_voz.cmd_dictar(a.idioma, a.modelo, a.escribir)
+        elif a.sub == "escuchar":
+            cli_voz.cmd_escuchar(a.idioma, a.modelo, a.dry)
+        elif a.sub == "hook":
+            cli_voz.cmd_hook(a.modo)
+        elif a.sub == "estado":
+            import json as _json
+            print(_json.dumps(motor.diagnostico_voz(), ensure_ascii=False, indent=2))
+    elif a.cmd == "roles":
+        for rol in config.listar_roles(): print(f"{rol.nombre:<20} {rol.prompt.splitlines()[0] if rol.prompt else ''}")
+    elif a.cmd == "modelos": listar_modelos()
+    elif a.cmd == "proponer":
+        if not config.modelo_por_id(a.modelo): sys.exit(f"modelo desconocido: {a.modelo}")
+        config.cargar_rol(a.funcion)
+        ident = uuid.uuid4().hex[:12]
+        eventos.registrar("propuesta", id=ident, funcion=a.funcion, modelo=a.modelo, motivo=a.motivo, tarea=a.tarea)
+        print(ident)
+    elif a.cmd == "aprobar":
+        p = _propuesta(a.id)
+        if not p: sys.exit(f"propuesta inexistente: {a.id}")
+        elegido = a.modelo or p["modelo"]
+        if not config.modelo_por_id(elegido): sys.exit(f"modelo desconocido: {elegido}\nEjecutá `station modelos`.")
+        eventos.registrar("aprobacion", id=a.id, modelo=elegido)
+        print(f"aprobada {a.id} · {elegido}")
+    elif a.cmd == "rechazar":
+        if not _propuesta(a.id): sys.exit(f"propuesta inexistente: {a.id}")
+        eventos.registrar("rechazo", id=a.id)
+        print(f"rechazada {a.id}")
+    elif a.cmd == "correr":
+        if not a.modelo:
+            sys.exit("station: --modelo es obligatorio. Modelos disponibles:\n" + "\n".join(f"  {m['id']} ({m['backend']}, costo {m['costo']}) — {m['para-que-sirve']}" for m in config.catalogo_modelos()))
+        aj = {k: v for k, v in (("backend", a.backend), ("model", a.modelo), ("escribir", None if a.escribir is None else a.escribir == "si"), ("ligero", None if a.ligero is None else (a.ligero if a.ligero == "lectura" else a.ligero == "si"))) if v is not None}
+        res = ejecutor.correr(a.rol, a.tarea, Path(a.C), a.proyecto, a.de, a.simular, aj, a.propuesta)
+        print(res.texto)
+        if not a.simular:
+            print(f"\n[station] {a.rol} · {res.modelo} · in {res.entrada:,} (caché {res.cache:,}) · out {res.salida:,}", file=sys.stderr)
+        sys.exit(0 if res.codigo == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()

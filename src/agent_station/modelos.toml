@@ -1,0 +1,39 @@
+[[modelo]]
+backend = "codex"
+id = "gpt-6-luna"
+para-que-sirve = "Trabajo general y programación rápida"
+costo = "bajo"
+
+[[modelo]]
+backend = "claude"
+id = "claude-sonnet-5-5"
+para-que-sirve = "Uso general, análisis y código"
+costo = "medio"
+
+[[modelo]]
+backend = "claude"
+id = "claude-opus-5-5"
+para-que-sirve = "Tareas complejas y razonamiento profundo"
+costo = "alto"
+
+[[modelo]]
+backend = "claude"
+id = "claude-haiku-5-5"
+para-que-sirve = "Tareas simples y rápidas"
+costo = "bajo"
+
+[[modelo]]
+backend = "openai"
+id = "gemini-4-hydrogen"
+para-que-sirve = "Análisis y tareas generales"
+costo = "medio"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env = "GEMINI_API_KEY"
+
+[[modelo]]
+backend = "openai"
+id = "gemini-neon"
+para-que-sirve = "Tareas rápidas"
+costo = "bajo"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env = "GEMINI_API_KEY"

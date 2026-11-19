@@ -45,7 +45,7 @@ def correr(cmd, env, cwd):
     cmd = cmd + ["-o", outpath]
     uso = {"input": 0, "cached": 0, "output": 0, "reasoning": 0}
     hilo, err = None, []
-    p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    p = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     for line in p.stdout:
         try:
             ev = json.loads(line)

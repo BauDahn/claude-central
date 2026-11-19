@@ -27,3 +27,8 @@ Si existe `~/agentes/equipo.conf`, esta máquina trabaja en equipo con otras (ca
 - Antes de mandar instrucciones a otra sesión o tocar algo que cambie el sistema, confirmá con el usuario, salvo que ya lo haya pedido explícitamente.
 - Si una sesión necesita una decisión del usuario, avisalo.
 - No inventes: si no ves una sesión o no podés leer algo, decilo.
+
+## Subagentes de otras IA (`sub`)
+- `sub <agy|claude|codex> [modelo] <dir> "tarea"` lanza un subagente en un kitty; `sub --lista`, `sub --modelos`.
+- **Log compartido en vivo:** `sublog` (últimas líneas), `sublog --seguir`, `sublog --crudo <nombre>` (terminal de ese sub). Los subagentes escriben con `reportar "msg"`. Miralo al arrancar y cuando el usuario pregunte "qué pasa".
+- No los veo con `ListAgents` ni les puedo mandar mensajes; el canal es el log.

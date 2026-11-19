@@ -20,6 +20,13 @@ if [ "$(agente_opcion "$nombre" motor)" = codex ]; then
 Sesión interactiva: el usuario te habla directamente en esta ventana. Esperá la tarea."
 fi
 
+# motor=agy: sesión interactiva de agy (Gemini/Claude/GPT-OSS vía agy) con model=<nombre exacto de agy>.
+if [ "$(agente_opcion "$nombre" motor)" = agy ]; then
+  modelo="$(agente_opcion "$nombre" model)"; a=(--mode accept-edits)
+  [ -n "$modelo" ] && a+=(--model "$modelo")
+  exec agy "${a[@]}" -i "$(cat "$ROOT/$rol" "$ROOT/roles/_comun.md")"
+fi
+
 args=(-n "$nombre")
 modelo="$(agente_opcion "$nombre" model)"; [ -n "$modelo" ] && args+=(--model "$modelo")
 # Aislamiento: cada agente con worktree trabaja en su propia rama/copia del repo (sin pisar a los demás)

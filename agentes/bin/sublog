@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# sublog                  últimas 40 líneas del log compartido
+# sublog --seguir         en vivo
+# sublog --todo           completo
+# sublog --crudo <nombre> lo que pasó en la terminal de ese subagente (sin códigos de color), últimas 80 líneas
+BUS="${AGENTES_HOME:-$HOME/agentes}/estado/subs/bus.log"; touch "$BUS"
+case "$1" in
+  --seguir) exec tail -n 20 -f "$BUS" ;;
+  --todo) command cat "$BUS" ;;
+  --crudo) sed -E 's/\x1b\[[0-9;?]*[ -\/]*[@-~]//g; s/\x1b\][^\x07]*\x07//g' "${AGENTES_HOME:-$HOME/agentes}/estado/subs/$2.log" | tr -d '\r' | grep -v '^\s*$' | tail -n 80 ;;
+  *) tail -n 40 "$BUS" ;;
+esac

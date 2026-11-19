@@ -16,3 +16,5 @@ listen.history
 agentes.conf
 estado.md
 pendientes.md
+.venv/
+uv.lock

@@ -1,0 +1,45 @@
+# Perfiles de permisos por rol (valores por defecto, ESTRICTOS). Para cambiarlos copiá este archivo a
+# ~/.agent-station/permisos.toml (o AGENT_STATION_PERMISOS) y editá: un perfil de tu archivo reemplaza al de mismo nombre.
+#
+# Cada perfil:
+#   modo     = "lectura" | "editar"     lectura: no edita archivos. editar: puede editar (acotado por `rutas` si hay).
+#   permitir = [...]                    reglas de herramientas pre-aprobadas, sintaxis de Claude Code: "Bash(pytest:*)"
+#   denegar  = [...]                    reglas siempre prohibidas (ganan sobre `permitir` y sobre las concesiones)
+#   rutas    = [...]                    si modo = "editar", solo puede editar dentro de estas carpetas (relativas al directorio de trabajo)
+# Un rol sin perfil usa [general]. Un subagente nunca puede tener más permisos que su perfil + las concesiones vigentes
+# (`station permisos dar`); `station correr --escribir si` no sube el perfil, solo puede bajarlo.
+
+[general]
+modo = "lectura"
+
+[constructor]
+modo = "editar"
+permitir = ["Bash(python:*)", "Bash(python3:*)", "Bash(pytest:*)", "Bash(uv run:*)",
+            "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"]
+denegar = ["Bash(git push:*)", "Bash(rm -rf:*)", "Bash(sudo:*)"]
+
+[interfaz]
+modo = "editar"
+[diseno]
+modo = "lectura"
+[orquestador]
+modo = "lectura"
+[optimizador]
+modo = "editar"
+[contextualizador]
+modo = "editar"
+[revisor]
+modo = "lectura"
+[investigador]
+modo = "lectura"
+[gemini-constructor]
+modo = "editar"
+rutas = ["src/", "tests/"]
+denegar = ["Bash(git push:*)", "Bash(rm -rf:*)", "Bash(sudo:*)"]
+
+# El agente PRINCIPAL (la sesión que abre `station`) lo defines solo vos; ningún agente puede cambiarlo.
+# `comandos`: programas que puede correr sin pedirte permiso. "station" habilita solo los subcomandos seguros
+# (correr, proponer, aprobar, rechazar, roles, modelos, bitacora, uso, optimizador, msg, permisos ver).
+[principal]
+comandos = ["station", "python", "pytest", "agy"]
+denegar = []

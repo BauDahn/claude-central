@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# reportar "mensaje" — escribe en el log compartido de subagentes (estado/subs/bus.log). Lo leen central y los demás.
+# Usa $SUB_NOMBRE (lo pone `sub`); fuera de un subagente, el nombre es "manual".
+BUS="${AGENTES_HOME:-$HOME/agentes}/estado/subs/bus.log"; mkdir -p "$(dirname "$BUS")"
+printf '%s [%s] %s\n' "$(date +%H:%M:%S)" "${SUB_NOMBRE:-manual}" "$*" >> "$BUS"
