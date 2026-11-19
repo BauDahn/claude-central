@@ -401,6 +401,7 @@ def main():
     signal.signal(signal.SIGUSR1, on_usr1)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     q = queue.Queue()
+    import faster_whisper, faster_whisper.vad  # precarga en el hilo principal: evita deadlock de imports (Python 3.14)
     threading.Thread(target=transcriber, args=(q,), daemon=True).start()
     vad = Vad()
     p = subprocess.Popen(
