@@ -76,7 +76,7 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
     buzon.enviar(de, agente, "ASIGNA: " + tarea, proyecto=proyecto, contexto=[str(e.ruta) for e in ctx])
     if not ctx:
         buzon.enviar(agente, "optimizador", f"PEDIR-CONTEXTO: mapa del directorio de trabajo | fuente: {cwd} | para: {agente}", proyecto=proyecto)
-    dec_id = decisiones.registrar(tarea, rol.backend, rol.opciones.get("model", ""), "ejecutor", str(cwd), nombre)
+    dec_id = decisiones.registrar(tarea, rol.backend, rol.opciones.get("model", ""), "ejecutor", str(cwd), nombre, os.environ.get("CENTRAL_MOTIVO", ""))
     t0 = time.time()
     antes = {k: os.environ.get(k) for k in ("CENTRAL_PROFUNDIDAD", "CENTRAL_AGENTE")}
     os.environ["CENTRAL_PROFUNDIDAD"], os.environ["CENTRAL_AGENTE"] = str(prof + 1), agente   # lo heredan los subprocesos del backend

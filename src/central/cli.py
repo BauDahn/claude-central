@@ -132,7 +132,7 @@ def main(argv=None):
     r.add_argument("-p", "--proyecto"); r.add_argument("-t", "--id", help="ID de tarea del tablero: se toma antes y se marca lista/bloqueada después"); r.add_argument("--de", default=None, help="quién delega (por defecto, el agente que te lanzó)")
     r.add_argument("--backend", choices=list(config_backends())); r.add_argument("--modelo"); r.add_argument("--propuesta"); r.add_argument("--escribir", choices=["si", "no"])
     r.add_argument("--ligero", choices=["si", "no", "lectura"], help="claude sin herramientas (si), con todas (no) o solo Read para imágenes (lectura)")
-    r.add_argument("--simular", action="store_true", help="solo imprime el prompt que recibiría el modelo (no llama a nadie)")
+    r.add_argument("--aprobado", action="store_true", help="el usuario aprobó este motor/modelo (obligatorio si no lo corrés vos desde una terminal)"); r.add_argument("--motivo", default="", help="por qué este motor/modelo"); r.add_argument("--simular", action="store_true", help="solo imprime el prompt que recibiría el modelo (no llama a nadie)")
     sg = sub.add_parser("seguir", help="sigue un hilo de Codex ya empezado (reusa caché, más barato)"); sg.add_argument("hilo"); sg.add_argument("mensaje")
     pm = sub.add_parser("permisos").add_subparsers(dest="sub", required=True)
     pv = pm.add_parser("ver"); pv.add_argument("rol", nargs="?")
@@ -214,6 +214,9 @@ def main(argv=None):
         if not a.modelo:
             sys.exit("central: --modelo es obligatorio. Modelos disponibles:\n" + "\n".join(f"  {m['id']} ({m['backend']}, costo {m['costo']}) — {m['para-que-sirve']}" for m in config.catalogo_modelos()))
         aj = {k: v for k, v in (("backend", a.backend), ("model", a.modelo), ("escribir", None if a.escribir is None else a.escribir == "si"), ("ligero", None if a.ligero is None else (a.ligero if a.ligero == "lectura" else a.ligero == "si"))) if v is not None}
+        if not a.simular and not a.aprobado and not sys.stdout.isatty():
+            sys.exit("central: SIN APROBACIÓN. Proponele al usuario motor y modelo (con el motivo) y esperá su OK; luego agregá --aprobado --motivo \"...\". Opciones: central modelos")
+        os.environ["CENTRAL_MOTIVO"] = a.motivo
         agente = f"{a.rol}-{a.backend or 'codex'}"
         if a.id and not a.simular:
             if err := tablero.tomar(a.id, agente, a.proyecto): sys.exit(f"BLOQUEADO: no pude tomar la tarea #{a.id}: {err}")
