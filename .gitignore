@@ -18,3 +18,25 @@ estado.md
 pendientes.md
 .venv/
 uv.lock
+
+# Estado y datos personales que viven en agentes/ (el repo solo lleva el código y los roles genéricos)
+agentes/estado/
+agentes/locks/
+agentes/tareas/
+agentes/equipo.conf
+agentes/alpha/
+agentes/beta/
+agentes/agente-minimo/
+agentes/spotify/
+agentes/contexto/conversaciones/
+agentes/contexto/docs/*
+agentes/contexto/mapas/*
+agentes/contexto/prompts/*
+!agentes/contexto/*/.gitkeep
+agentes/roles/dj.md
+agentes/roles/finanzas.md
+agentes/roles/investigador.md
+agentes/roles/ropa.md
+agentes/roles/arreglos-voz.md
+agentes/roles/rag-continuacion.md
+agentes/roles/compactador-espera.md

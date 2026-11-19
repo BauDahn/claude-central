@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""bitacora — log de cómo se comunican las sesiones/subagentes y qué logra el optimizador (solo lectura).
+
+  bitacora                         mensajes entre sesiones de las últimas 24 h (cronológico)
+  bitacora --desde 2026-11-01      desde una fecha (o 2h / 3d)
+  bitacora --agente backend        solo mensajes donde participa ese agente (emisor o receptor)
+  bitacora --completo              cuerpo entero de cada mensaje (por defecto se recorta)
+  bitacora --optimizador           informe del optimizador: pedidos, respuestas, tokens ahorrados, caché, consumo
+  bitacora --seguir                como tail -f: imprime los mensajes nuevos según llegan
+  bitacora --json                  salida JSON
+
+Fuente: los registros `queue-operation` (operation=enqueue) de ~/.claude/projects/*/*.jsonl, que guardan cada
+<cross-session-message from-name=...> con el receptor = sesión dueña del archivo. Los mensajes a la sesión
+central también se ven así. Los de otras máquinas (`equipo`) NO están acá.
+"""
+import argparse, collections, datetime as dt, glob, json, os, re, sys, time
+from pathlib import Path
+
+HOME = Path(os.environ.get("AGENTES_HOME", Path.home() / "agentes"))
+BASE = Path(os.environ.get("CLAUDE_HOME", Path.home() / ".claude")) / "projects"
+MSG = re.compile(r'<cross-session-message\b([^>]*)>\n?(.*?)\n?</cross-session-message>', re.S)
+ATTR = re.compile(r'([\w-]+)="([^"]*)"')
+COLORES = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+
+def c(txt, code): return f"\033[{code}m{txt}\033[0m" if COLORES else txt
+
+
+def parse_ts(s): return dt.datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone()
+
+
+def desde_arg(s):
+    m = re.fullmatch(r"(\d+)([hd])", s)
+    if m: return dt.datetime.now().astimezone() - dt.timedelta(**{"hours" if m[2] == "h" else "days": int(m[1])})
+    return dt.datetime.fromisoformat(s).astimezone()
+
+
+def titulo_sesion(f):
+    """Nombre de la sesión (custom-title) o, si no tiene, el directorio del proyecto."""
+    nombre = None
+    try:
+        with open(f, errors="ignore") as fh:
+            for l in fh:
+                if '"custom-title"' in l:
+                    try: nombre = json.loads(l).get("customTitle") or nombre
+                    except ValueError: pass
+    except OSError: pass
+    return nombre or "central" if "-home-baudahn-central" in str(f) else (nombre or Path(f).parent.name.replace("-home-baudahn-", "").replace("-home-baudahn", "~"))
+
+
+def mensajes(desde):
+    """Todos los mensajes entre sesiones desde `desde`, ordenados, deduplicados."""
+    out, vistos = [], set()
+    for f in glob.glob(str(BASE / "*" / "*.jsonl")):
+        try:
+            if dt.datetime.fromtimestamp(os.path.getmtime(f)).astimezone() < desde: continue
+            fh = open(f, errors="ignore")
+        except OSError: continue
+        rec = None
+        with fh:
+            for l in fh:
+                if "cross-session-message" not in l or '"enqueue"' not in l: continue
+                try: d = json.loads(l)
+                except ValueError: continue
+                if d.get("type") != "queue-operation" or d.get("operation") != "enqueue": continue
+                m = MSG.search(d.get("content", ""))
+                if not m: continue
+                ts = parse_ts(d["timestamp"])
+                if ts < desde: continue
+                a = dict(ATTR.findall(m[1])); cuerpo = m[2].strip()
+                rec = rec or titulo_sesion(f)
+                k = (a.get("from-name"), rec, cuerpo[:200], int(ts.timestamp()) // 10)
+                if k in vistos: continue
+                vistos.add(k)
+                out.append({"ts": ts, "de": a.get("from-name") or "?", "a": rec, "cuerpo": cuerpo, "sesion": Path(f).stem})
+    out.sort(key=lambda x: x["ts"])
+    return out
+
+
+def tipo(cuerpo):
+    for t in ("PEDIR-CONTEXTO", "CONTEXTO-LISTO", "LISTO", "BLOQUEADO", "DECISION", "PREGUNTA"):
+        if cuerpo.startswith(t): return t
+    return ""
+
+
+def linea(m, completo):
+    t = m["ts"].strftime("%m-%d %H:%M:%S")
+    tp = tipo(m["cuerpo"])
+    cuerpo = m["cuerpo"] if completo else " ".join(m["cuerpo"].split())[:220] + ("…" if len(" ".join(m["cuerpo"].split())) > 220 else "")
+    col = {"PEDIR-CONTEXTO": "33", "CONTEXTO-LISTO": "32", "BLOQUEADO": "31"}.get(tp, "0")
+    cab = f"{c(t, '90')}  {c(m['de'], '36')} → {c(m['a'], '35')}"
+    if completo: return f"{cab}\n{c(cuerpo, col)}\n"
+    return f"{cab}  {c(cuerpo, col)}"
+
+
+# ---------- informe del optimizador ----------
+def aprox_tokens(s):
+    s = s.replace(",", ".").lower()
+    m = re.fullmatch(r"~?(\d+(?:\.\d+)?)\s*(k|m)?", s)
+    if not m: return None
+    v = float(m[1]); return v * (1000 if m[2] == "k" else 1_000_000 if m[2] == "m" else 1)
+
+
+def informe_optimizador(desde, js):
+    msgs = mensajes(desde)
+    pedidos = [m for m in msgs if m["a"] == "optimizador" and tipo(m["cuerpo"]) == "PEDIR-CONTEXTO"]
+    listos = [m for m in msgs if m["de"] == "optimizador" and tipo(m["cuerpo"]) == "CONTEXTO-LISTO"]
+    entregas, ahorro_ev = [], []
+    for m in listos:
+        tk = re.search(r"\(~?\s*([\d.,]+k?)\s*tokens\)", m["cuerpo"])
+        serv = aprox_tokens(tk[1]) if tk else None
+        fu = re.search(r"[Ff]uente\s*[≈~]\s*([\d.,]+k?)\s*tokens?\s*[→>-]+\s*~?([\d.,]+k?)", m["cuerpo"])
+        antes, despues = (aprox_tokens(fu[1]), aprox_tokens(fu[2])) if fu else (None, serv)
+        if antes and despues: ahorro_ev.append((antes, despues))
+        ruta = re.search(r"CONTEXTO-LISTO:\s*(\S+)", m["cuerpo"])
+        entregas.append({"ts": m["ts"], "a": m["a"], "ruta": ruta[1] if ruta else "?", "tokens": serv, "antes": antes})
+    # latencia: cada PEDIR-CONTEXTO -> primer CONTEXTO-LISTO posterior
+    lat = []
+    for p in pedidos:
+        sig = next((l for l in listos if l["ts"] >= p["ts"]), None)
+        if sig: lat.append((sig["ts"] - p["ts"]).total_seconds())
+    # INDEX actual
+    index = []
+    idx = HOME / "contexto" / "INDEX.md"
+    if idx.exists():
+        for l in idx.read_text().splitlines():
+            if l.startswith("#") or l.count("|") < 4: continue
+            col = [x.strip() for x in l.split("|")]
+            index.append({"ruta": col[0], "fuente": col[1], "fecha": col[2], "tokens": col[3], "resumen": col[4]})
+    # consumo de las sesiones del optimizador (para ver si "se paga")
+    consumo = collections.Counter()
+    for f in glob.glob(str(BASE / "*" / "*.jsonl")):
+        try:
+            if os.path.getmtime(f) < desde.timestamp(): continue
+        except OSError: continue
+        if titulo_sesion(f) != "optimizador": continue
+        vistos = {}
+        for l in open(f, errors="ignore"):
+            if '"usage"' not in l: continue
+            try: d = json.loads(l)
+            except ValueError: continue
+            mm = d.get("message") or {}
+            if d.get("type") == "assistant" and mm.get("usage") and parse_ts(d["timestamp"]) >= desde:
+                vistos[mm.get("id") or d.get("uuid")] = mm["usage"]
+        for u in vistos.values():
+            consumo["entrada"] += u.get("input_tokens", 0); consumo["caché lect."] += u.get("cache_read_input_tokens", 0)
+            consumo["caché esc."] += u.get("cache_creation_input_tokens", 0); consumo["salida"] += u.get("output_tokens", 0)
+            consumo["turnos"] += 1
+    ahorro = sum(a - d for a, d in ahorro_ev)
+    res = {"pedidos": len(pedidos), "entregas": len(entregas), "con_ahorro_medido": len(ahorro_ev),
+           "tokens_fuente": sum(a for a, _ in ahorro_ev), "tokens_entregados": sum(d for _, d in ahorro_ev),
+           "tokens_ahorrados_por_lectura": ahorro, "latencia_mediana_s": sorted(lat)[len(lat) // 2] if lat else None,
+           "consumo_optimizador": dict(consumo), "index": index, "entregas_detalle": entregas}
+    if js: print(json.dumps(res, default=str, ensure_ascii=False, indent=2)); return
+    print(c(f"Optimizador — desde {desde:%Y-%m-%d %H:%M}", "1"))
+    print(f"  pedidos recibidos: {len(pedidos)}   entregas (CONTEXTO-LISTO): {len(entregas)}   latencia mediana: "
+          + (f"{res['latencia_mediana_s']:.0f} s" if lat else "n/d"))
+    if ahorro_ev:
+        a, d = res["tokens_fuente"], res["tokens_entregados"]
+        print(f"  compresión medida ({len(ahorro_ev)} entregas): ~{a:,.0f} → ~{d:,.0f} tokens  (x{a / max(d, 1):.0f} menos; ahorro ≈ {ahorro:,.0f} tokens por cada vez que un agente lo lee en vez de la fuente)")
+    else:
+        print("  compresión medida: ninguna entrega declaró «Fuente ≈N tokens → ~M»")
+    if consumo:
+        print(f"  consumo propio del optimizador: {consumo['turnos']} turnos, entrada {consumo['entrada']:,}, "
+              f"caché lect. {consumo['caché lect.']:,}, caché esc. {consumo['caché esc.']:,}, salida {consumo['salida']:,}")
+    print(c("\nEntregas", "1"))
+    for e in entregas:
+        ratio = f"  (fuente ~{e['antes']:,.0f})" if e["antes"] else ""
+        print(f"  {e['ts']:%m-%d %H:%M}  → {e['a']:<12} {e['ruta']}  ~{(e['tokens'] or 0):,.0f} tok{ratio}")
+    print(c("\nCaché actual (contexto/INDEX.md)", "1"))
+    for i in index: print(f"  {i['tokens']:>7}  {i['ruta']}  [{i['fecha']}]")
+    print("\nNota: el ahorro es una estimación (~4 chars/token) con las cifras que el propio optimizador declara; "
+          "no mide cuántas veces se leyó cada archivo. Revisá `bitacora --agente optimizador` para ver el detalle.")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="bitacora")
+    ap.add_argument("--desde", default="24h"); ap.add_argument("--agente"); ap.add_argument("--completo", action="store_true")
+    ap.add_argument("--optimizador", action="store_true"); ap.add_argument("--seguir", action="store_true"); ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(); desde = desde_arg(a.desde)
+    if a.optimizador: return informe_optimizador(desde, a.json)
+
+    def filtrar(ms): return [m for m in ms if not a.agente or a.agente in (m["de"], m["a"])]
+    ms = filtrar(mensajes(desde))
+    if a.json:
+        print(json.dumps([{**m, "ts": m["ts"].isoformat()} for m in ms], ensure_ascii=False, indent=2)); return
+    if not ms and not a.seguir: print("(sin mensajes en ese período)"); return
+    for m in ms: print(linea(m, a.completo))
+    if a.seguir:
+        ult = ms[-1]["ts"] if ms else dt.datetime.now().astimezone()
+        try:
+            while True:
+                time.sleep(2)
+                for m in filtrar(mensajes(ult - dt.timedelta(seconds=1))):
+                    if m["ts"] > ult: print(linea(m, a.completo), flush=True); ult = m["ts"]
+        except KeyboardInterrupt: pass
+
+
+if __name__ == "__main__":
+    main()
