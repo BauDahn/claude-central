@@ -64,6 +64,16 @@ def mic_args():
         name = f.read_text().strip()
     return ["--device=" + name] if name else []
 SPANISH_CHARS = re.compile(r"[áéíóúñüÁÉÍÓÚÑÜ¿¡]")
+# Palabras españolas que casi no existen en inglés: detectan español escrito SIN tildes ("listo, todo bien").
+SPANISH_WORDS = {"el", "la", "los", "las", "una", "del", "que", "con", "por", "para", "pero", "esto", "esta", "este", "estoy",
+                 "hice", "listo", "muy", "ya", "su", "sus", "nada", "todo", "todos", "bien", "ahora", "vos", "che", "como",
+                 "si", "cuando", "donde", "hay", "tengo", "puedo", "quiero", "hacer", "hecho", "sobre", "entre", "desde"}
+
+
+def parece_espanol(text):
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    hits = [w for w in words if w in SPANISH_WORDS]
+    return len(hits) >= 2 or (words and len(hits) / len(words) >= 0.25)
 
 
 # ---------------------------------------------------------------- sesiones
@@ -342,7 +352,7 @@ def speak_text(text):
     text = clean(text)
     if not text:
         return
-    if SPANISH_CHARS.search(text):
+    if SPANISH_CHARS.search(text) or parece_espanol(text):
         log(f"omitido por caracteres del espanol: {text[:80]!r}")
         LOGFILE.write_text("Texto con caracteres del espanol, no se lee: " + text + "\n")
         return
