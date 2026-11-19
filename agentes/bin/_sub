@@ -13,4 +13,6 @@ case "$motor" in
   *) echo "motor desconocido: $motor"; read -r; exit 1 ;;
 esac
 if command -v script >/dev/null; then script -q -f -c "$(printf '%q ' "${cmd[@]}")" "$log"; else "${cmd[@]}"; fi
-reportar "terminó (código $?)"
+rc=$?
+reportar "terminó (código $rc)"
+[ -n "$SUB_DECISION" ] && station decisiones cerrar "$SUB_DECISION" "$([ $rc = 0 ] && echo terminado || echo error)" >/dev/null 2>&1

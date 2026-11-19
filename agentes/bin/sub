@@ -27,7 +27,8 @@ dir="${dir/#\~/$HOME}"; [ -d "$dir" ] || { echo "no existe el directorio: $dir";
 pf="$SUBS/$nombre.prompt"; log="$SUBS/$nombre.log"
 printf '%s\n\n---\nCOORDINACIÓN: sos un subagente lanzado por central. Hay un log compartido que central lee en vivo. Usá el comando `reportar "mensaje corto"` (en el PATH) al empezar cada etapa, al terminar cada hito, cuando te bloquees o necesites una decisión del usuario, y al finalizar con un resumen de lo hecho. Para ver lo que reportan los demás: `sublog`.\n' "$tarea" > "$pf"
 [ -n "$ws" ] || ws="$(hyprctl activeworkspace -j | jq -r '.id')"
-cmd="kitty --class agente-$nombre --title $nombre -d '$dir' '$ROOT/bin/_sub' '$motor' '$modelo' '$pf' '$log'"
+did="$(station decisiones registrar --motor "$motor" --modelo "$modelo" --origen sub --dir "$dir" --nombre "$nombre" --prompt-file "$pf" 2>/dev/null)" || did=""
+cmd="env SUB_DECISION=$did kitty --class agente-$nombre --title $nombre -d '$dir' '$ROOT/bin/_sub' '$motor' '$modelo' '$pf' '$log'"
 out="$(hyprctl dispatch "hl.dsp.exec_cmd([==[$cmd]==], { workspace = \"$ws silent\" })" 2>&1)"
 [ "$out" = ok ] || { echo "error al lanzar: $out" >&2; exit 1; }
 jq --arg n "$nombre" --arg m "$motor" --arg mo "$modelo" --arg d "$dir" '.[$n]={motor:$m,modelo:$mo,dir:$d,ts:(now|floor)}' "$REG" > "$REG.tmp" && mv "$REG.tmp" "$REG"

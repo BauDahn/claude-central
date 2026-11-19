@@ -9,7 +9,7 @@
 import dataclasses, os, time
 from pathlib import Path
 
-from . import buzon, contexto, eventos, permisos, uso
+from . import buzon, contexto, decisiones, eventos, permisos, uso
 from .backends import BACKENDS, Resultado
 from .config import Rol, cargar_rol, modelo_por_id
 
@@ -74,6 +74,7 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
     buzon.enviar(de, agente, "ASIGNA: " + tarea, proyecto=proyecto, contexto=[str(e.ruta) for e in ctx])
     if not ctx:
         buzon.enviar(agente, "optimizador", f"PEDIR-CONTEXTO: mapa del directorio de trabajo | fuente: {cwd} | para: {agente}", proyecto=proyecto)
+    dec_id = decisiones.registrar(tarea, rol.backend, rol.opciones.get("model", ""), "ejecutor", str(cwd), nombre)
     t0 = time.time()
     antes = {k: os.environ.get(k) for k in ("AGENT_STATION_PROFUNDIDAD", "AGENT_STATION_AGENTE")}
     os.environ["AGENT_STATION_PROFUNDIDAD"], os.environ["AGENT_STATION_AGENTE"] = str(prof + 1), agente   # lo heredan los subprocesos del backend
@@ -90,6 +91,7 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
     buzon.enviar(agente, de, primera[:300], proyecto=proyecto)
     uso.registrar(agente, rol.backend, r.modelo, r.entrada, r.cache, r.salida, dur, tarea, primera, proyecto,
                   hilo=r.hilo, contexto_inyectado=len(ctx))
+    decisiones.resultado(dec_id, "terminado" if r.codigo == 0 else "error", r.entrada + r.salida, dur)
     eventos.registrar("terminado", funcion=nombre, modelo=rol.opciones.get("model", ""), propuesta=propuesta,
                       estado="terminado" if r.codigo == 0 else "error")
     return r

@@ -135,6 +135,12 @@ def main(argv=None):
     pv = pm.add_parser("ver"); pv.add_argument("rol", nargs="?")
     pd = pm.add_parser("dar"); pd.add_argument("rol"); pd.add_argument("regla"); pd.add_argument("--hasta", default="1h", help="30m, 1h, 2d o siempre (def. 1h)")
     pq = pm.add_parser("quitar"); pq.add_argument("rol"); pq.add_argument("regla")
+    dc = sub.add_parser("decisiones", help="registro de decisiones de lanzamiento (para entrenar el selector de modelo)").add_subparsers(dest="sub", required=True)
+    dr = dc.add_parser("registrar"); dr.add_argument("--motor", required=True); dr.add_argument("--modelo", default=""); dr.add_argument("--origen", default="sub"); dr.add_argument("--dir", default=""); dr.add_argument("--nombre", default=""); dr.add_argument("--motivo", default=""); dr.add_argument("--prompt-file", required=True)
+    dce = dc.add_parser("cerrar"); dce.add_argument("id"); dce.add_argument("estado", choices=["terminado", "error"]); dce.add_argument("--tokens", type=int, default=0); dce.add_argument("--seg", type=float, default=0.0)
+    dv = dc.add_parser("veredicto"); dv.add_argument("id", help="id, o 'ultima'"); dv.add_argument("valor", choices=["bien", "mal"]); dv.add_argument("--nota", default="")
+    dl = dc.add_parser("ver"); dl.add_argument("-n", type=int, default=20)
+    dx = dc.add_parser("exportar"); dx.add_argument("--solo-con-veredicto", action="store_true")
     sub.add_parser("roles")
     sub.add_parser("modelos")
     p = sub.add_parser("proponer"); p.add_argument("funcion"); p.add_argument("--modelo", required=True); p.add_argument("--motivo", required=True); p.add_argument("--tarea", required=True)
@@ -148,6 +154,7 @@ def main(argv=None):
     vhk = vz.add_parser("hook"); vhk.add_argument("modo", choices=["register", "stop", "early", "speak"])
     vz.add_parser("estado")
     sub.add_parser("ui", help="abre la interfaz visual (requiere PyQt6)")
+    vr = sub.add_parser("ver", help="abre el visor: grafo de comunicación, logs o uso por IA (requiere PyQt6)"); vr.add_argument("vista", nargs="?", default="grafo", choices=["grafo", "logs", "uso"])
     argv = sys.argv[1:] if argv is None else argv
     if not argv or (argv[0] not in sub.choices and argv[0] not in ("-h", "--help")):
         lanzar.lanzar(argv); return              # sin subcomando: abre Claude Code como agente principal (lo demás va a claude)
@@ -160,6 +167,22 @@ def main(argv=None):
     elif a.cmd == "optimizador": cmd_optimizador(a)
     elif a.cmd == "uso": cmd_uso(a)
     elif a.cmd == "importar": print("importado:", importar.desde_central())
+    elif a.cmd == "decisiones":
+        from . import decisiones as dec
+        if a.sub == "registrar": print(dec.registrar(Path(a.prompt_file).read_text(), a.motor, a.modelo, a.origen, a.dir, a.nombre, a.motivo))
+        elif a.sub == "cerrar": dec.resultado(a.id, a.estado, a.tokens, a.seg)
+        elif a.sub == "veredicto":
+            id_ = a.id if a.id != "ultima" else (dec.unidas() or [{"id": ""}])[-1]["id"]
+            dec.veredicto(id_, 1 if a.valor == "bien" else -1, a.nota); print("ok", id_)
+        elif a.sub == "ver":
+            for f in dec.unidas()[-a.n:]:
+                v = {1: "👍", -1: "👎", None: "-"}[f["veredicto"]]
+                print(f"{f['id']}  {f['motor']:<7} {f['modelo'][:24]:<24} {f['estado']:<10} {v}  {f['prompt'].splitlines()[0][:70] if f['prompt'] else ''}")
+        elif a.sub == "exportar": print(dec.exportar(a.solo_con_veredicto))
+    elif a.cmd == "ver":
+        try: from .gui.visor import main as visor_main
+        except ImportError as e: sys.exit(f"[central] falta PyQt6 para el visor ({e}). Instalá: uv tool install --reinstall '.[ui]'")
+        sys.exit(visor_main(a.vista))
     elif a.cmd == "ui":
         try: from .gui.main import main as ui_main
         except ImportError as e: sys.exit(f"[station] falta PyQt6 para la interfaz ({e}). Instalá: uv tool install --reinstall '.[ui]'")
