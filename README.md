@@ -50,18 +50,18 @@ Configurá tus agentes en `~/agentes/agentes.conf` (hay un `.example`): una lín
 ### Variables útiles
 `CLAUDE_VOICE` (voz Kokoro), `CLAUDE_VOICE_SPEED`, `CLAUDE_VOICE_DUCK`, `CLAUDE_VOICE_BARGE`, `LISTEN_MODEL` (def. `small`), `LISTEN_LANG` (def. `es`), `LISTEN_PROMPT` (pista para Whisper; útil para acentos), `HOY_CALENDARIO`, `TZ_LOCAL`.
 
-## Codex como ejecutor (`cx`)
+## Ejecutor multi-IA (`central correr`): Codex, Claude y agy
 
-Claude planifica y revisa; el código lo escribe [Codex](https://developers.openai.com/codex) con el modelo adecuado a cada rol, así no gastás tokens de Claude en escribir código.
+Claude planifica y revisa; el código lo escribe otra IA (Codex, Claude o agy) con el modelo adecuado a cada rol (`--backend codex|claude|agy`, `--modelo <id>` del catálogo `central modelos`). Para una terminal visible y aprobable usá `sub`.
 
 ```bash
-cx roles                                   # rol → modelo, esfuerzo, sandbox (perfiles en ~/.codex/<rol>.config.toml)
-cx backend -C ~/proyecto -p proyecto -t 3 "tarea concreta, criterio de hecho y cómo verificar"
-cx seguir <hilo> "corregí X"               # mismo hilo, reusa la caché
-cx log                                     # uso por rol (tokens, tiempo, resultados)
+central roles                                   # roles disponibles; central modelos: modelos y su costo
+central correr backend --modelo gpt-6-luna -C ~/proyecto -p proyecto -t 3 "tarea concreta, criterio de hecho y cómo verificar"
+central seguir <hilo> "corregí X"               # mismo hilo, reusa la caché
+central uso                                     # uso por rol (tokens, tiempo, resultados)
 ```
 
-`cx` devuelve solo un resumen (`LISTO`/`BLOQUEADO`/`NECESITA` + archivos + verificado), toma y cierra la tarea del tablero, y suelta los bloqueos al terminar. Requiere `npm i -g @openai/codex && codex login`; el instalador copia los perfiles (orquestador/seguridad/ideas → esfuerzo alto, backend/frontend/revisor → medio, optimizador/rapido → modelo chico). Con `motor=codex` en `agentes.conf`, `lanzar` abre una sesión interactiva de Codex en vez de Claude.
+`central correr` devuelve solo un resumen (`LISTO`/`BLOQUEADO`/`NECESITA` + archivos + verificado), toma y cierra la tarea del tablero, y suelta los bloqueos al terminar. Requiere `npm i -g @openai/codex && codex login`; el instalador copia los perfiles (orquestador/seguridad/ideas → esfuerzo alto, backend/frontend/revisor → medio, optimizador/rapido → modelo chico). Con `motor=codex` en `agentes.conf`, `lanzar` abre una sesión interactiva de Codex en vez de Claude.
 
 ## Equipo multi-máquina (`equipo`)
 

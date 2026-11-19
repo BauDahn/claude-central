@@ -37,8 +37,6 @@ chk "contexto-check: vigente"                $B/contexto-check
 no  "contexto-check: detecta fuente cambiada" $B/contexto-check
 
 mkdir -p "$T/codex"; sed "s#__HOME__#$T#g" "$B/../../config/codex/backend.config.toml" > "$T/codex/backend.config.toml"
-chk "cx: lista roles desde los perfiles"     bash -c "CODEX_HOME=$T/codex $B/cx roles | grep -q 'backend.*gpt'"
-no  "cx: rol inexistente falla"              bash -c "CODEX_HOME=$T/codex $B/cx noexiste 'x'"
 no  "equipo: sin equipo.conf falla"          $B/equipo mias
 chk "equipo: ayuda"                          $B/equipo -h
 

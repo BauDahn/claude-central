@@ -39,7 +39,7 @@ cp -r "$HERE/agentes/roles" "$HERE/agentes/bin" "$HOME/agentes/"
 install -m755 "$HERE/agentes/lanzar" "$HERE/agentes/cerrar" "$HERE/agentes/listar" "$HERE/agentes/restaurar" "$HERE/agentes/guardar-estado" "$HOME/agentes/"
 chmod +x "$HOME/agentes/bin/"*
 mkdir -p "$HOME/agentes/estado" "$HOME/agentes/tareas" "$HOME/agentes/locks"
-for t in tareas bloqueo tokens compactar contexto-check cx equipo; do ln -sf "$HOME/agentes/bin/$t" "$BIN/$t"; done
+for t in tareas bloqueo tokens compactar contexto-check equipo bitacora sub sublog reportar; do ln -sf "$HOME/agentes/bin/$t" "$BIN/$t"; done
 mkdir -p "$HOME/.config/systemd/user"
 cp "$HERE"/config/systemd/guardar-estado.* "$HOME/.config/systemd/user/"
 if command -v systemctl >/dev/null; then
@@ -54,7 +54,7 @@ mkdir -p "$HOME/central"
 install -m755 "$HERE/central/hoy" "$HOME/central/hoy"
 grep -q 'equipo:inicio' "$HOME/central/CLAUDE.md" || { echo; cat "$HERE/config/central-equipo.md"; } >> "$HOME/central/CLAUDE.md"
 
-echo "→ Perfiles de Codex por rol (~/.codex, para cx)"
+echo "→ Perfiles de Codex por rol (~/.codex, para central correr)"
 if [ -d "$HOME/.codex" ] || command -v codex >/dev/null; then
   mkdir -p "$HOME/.codex"
   for f in "$HERE"/config/codex/*.config.toml; do
@@ -93,7 +93,7 @@ PY
 echo
 echo "Listo. Probalo:  $VOICE_DIR/venv/bin/python $VOICE_DIR/voice.py say \"hello\""
 echo "Coordinador:     central     |  Escucha: escucha on     |  Agentes: ~/agentes/lanzar <nombre>"
-echo "Codex:           cx roles    |  Equipo multi-máquina: equipo init --maquina <nombre> --rol orquestador|miembro --repo <dueño/repo> --dir <proyecto>"
+echo "Codex:           central roles    |  Equipo multi-máquina: equipo init --maquina <nombre> --rol orquestador|miembro --repo <dueño/repo> --dir <proyecto>"
 echo "Opcional (guardado automático del estado cada 10 min): systemctl --user enable --now guardar-estado.timer"
 echo "Opcional (reabrir agentes al iniciar sesión):          exec-once = ~/agentes/restaurar   (en hyprland.conf)"
 echo "Asegurate de que ~/.local/bin esté en tu PATH."

@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# central ver [grafo|logs|uso] -> visor (grafo de comunicación, bitácora, consumo por IA)
-if [ "$1" = ver ]; then exec station ver "${2:-grafo}"; fi
-# Abre (o enfoca) el Claude principal, el que coordina las demás sesiones.
-if hyprctl clients -j | grep -q '"class": "claude-central"'; then
-  hyprctl dispatch 'hl.dsp.focus({ window = "class:^claude-central$" })' >/dev/null
-else
-  setsid kitty --class claude-central --directory "$HOME/central" env CLAUDE_CENTRAL=1 claude >/dev/null 2>&1 &
-fi
