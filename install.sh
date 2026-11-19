@@ -30,14 +30,23 @@ if [ "$SKIP_MODELS" != 1 ] && [ "$SKIP_VENV" != 1 ]; then
 fi
 
 echo "→ Comandos en $BIN"
-install -m755 "$HERE/bin/central" "$HERE/bin/escucha" "$BIN/"
+install -m755 "$HERE/bin/escucha" "$BIN/"
+if command -v uv >/dev/null; then
+  uv tool install --force --editable "$HERE[ui]" >/dev/null && echo "  central (CLI Python) instalado con uv"
+else
+  echo "  Aviso: falta uv (https://docs.astral.sh/uv/); sin él no se instala el comando central"
+fi
 
 echo "→ Agentes en ~/agentes"
-mkdir -p "$HOME/agentes"
-cp -r "$HERE/agentes/roles" "$HERE/agentes/bin" "$HOME/agentes/"
-[ -d "$HOME/agentes/contexto" ] || cp -r "$HERE/agentes/contexto" "$HOME/agentes/"
-install -m755 "$HERE/agentes/lanzar" "$HERE/agentes/cerrar" "$HERE/agentes/listar" "$HERE/agentes/restaurar" "$HERE/agentes/guardar-estado" "$HOME/agentes/"
-chmod +x "$HOME/agentes/bin/"*
+if [ "$(readlink -f "$HOME/agentes" 2>/dev/null)" = "$(readlink -f "$HERE/agentes")" ]; then
+  echo "  ~/agentes ya es un enlace a este repo; no hay nada que copiar"
+else
+  mkdir -p "$HOME/agentes"
+  cp -r "$HERE/agentes/roles" "$HERE/agentes/bin" "$HOME/agentes/"
+  [ -d "$HOME/agentes/contexto" ] || cp -r "$HERE/agentes/contexto" "$HOME/agentes/"
+  install -m755 "$HERE/agentes/lanzar" "$HERE/agentes/cerrar" "$HERE/agentes/listar" "$HERE/agentes/restaurar" "$HERE/agentes/guardar-estado" "$HOME/agentes/"
+  chmod +x "$HOME/agentes/bin/"*
+fi
 mkdir -p "$HOME/agentes/estado" "$HOME/agentes/tareas" "$HOME/agentes/locks"
 for t in tareas bloqueo tokens compactar contexto-check equipo bitacora sub sublog reportar; do ln -sf "$HOME/agentes/bin/$t" "$BIN/$t"; done
 mkdir -p "$HOME/.config/systemd/user"
