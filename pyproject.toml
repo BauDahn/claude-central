@@ -1,7 +1,7 @@
 [project]
 name = "claude-central"
 version = "0.1.0"
-description = "Central: coordinación de agentes de IA (registro de eventos, ejecutor multi-backend, permisos, voz, visor)."
+description = "Central: coordinación de agentes de IA (registro de eventos, ejecutor multi-backend, permisos, visor)."
 requires-python = ">=3.11"
 dependencies = []
 
@@ -10,7 +10,6 @@ station = "agent_station.cli:main"
 
 [project.optional-dependencies]
 ui = ["PyQt6"]
-voice = ["kokoro-onnx", "faster-whisper", "soundfile", "numpy"]
 
 [build-system]
 requires = ["hatchling"]

@@ -146,14 +146,6 @@ def main(argv=None):
     p = sub.add_parser("proponer"); p.add_argument("funcion"); p.add_argument("--modelo", required=True); p.add_argument("--motivo", required=True); p.add_argument("--tarea", required=True)
     apv = sub.add_parser("aprobar"); apv.add_argument("id"); apv.add_argument("--modelo")
     rej = sub.add_parser("rechazar"); rej.add_argument("id")
-    vz = sub.add_parser("voz", help="TTS Kokoro y dictado/escucha Whisper local").add_subparsers(dest="sub", required=True)
-    vd = vz.add_parser("decir"); vd.add_argument("texto", nargs="+"); vd.add_argument("--voz", default="af_heart"); vd.add_argument("--velocidad", type=float, default=1.05); vd.add_argument("--forzar", action="store_true")
-    vz.add_parser("parar")
-    vdi = vz.add_parser("dictar"); vdi.add_argument("--idioma", default="es"); vdi.add_argument("--modelo", default="small"); vdi.add_argument("--escribir", action="store_true")
-    ves = vz.add_parser("escuchar"); ves.add_argument("--idioma", default="es"); ves.add_argument("--modelo", default="small"); ves.add_argument("--dry", action="store_true")
-    vhk = vz.add_parser("hook"); vhk.add_argument("modo", choices=["register", "stop", "early", "speak"])
-    vz.add_parser("estado")
-    sub.add_parser("ui", help="abre la interfaz visual (requiere PyQt6)")
     vr = sub.add_parser("ver", help="abre el visor: grafo de comunicación, logs o uso por IA (requiere PyQt6)"); vr.add_argument("vista", nargs="?", default="grafo", choices=["grafo", "logs", "uso"])
     argv = sys.argv[1:] if argv is None else argv
     if not argv or (argv[0] not in sub.choices and argv[0] not in ("-h", "--help")):
@@ -183,25 +175,6 @@ def main(argv=None):
         try: from .gui.visor import main as visor_main
         except ImportError as e: sys.exit(f"[central] falta PyQt6 para el visor ({e}). Instalá: uv tool install --reinstall '.[ui]'")
         sys.exit(visor_main(a.vista))
-    elif a.cmd == "ui":
-        try: from .gui.main import main as ui_main
-        except ImportError as e: sys.exit(f"[station] falta PyQt6 para la interfaz ({e}). Instalá: uv tool install --reinstall '.[ui]'")
-        sys.exit(ui_main())
-    elif a.cmd == "voz":
-        from .voz import cli_voz, motor
-        if a.sub == "decir":
-            cli_voz._run_worker(["--oneshot", "speak", "--text", " ".join(a.texto), "--voice", a.voz, "--speed", str(a.velocidad), *(["--force"] if a.forzar else [])])
-        elif a.sub == "parar":
-            motor.stop_detached_pid()
-        elif a.sub == "dictar":
-            cli_voz.cmd_dictar(a.idioma, a.modelo, a.escribir)
-        elif a.sub == "escuchar":
-            cli_voz.cmd_escuchar(a.idioma, a.modelo, a.dry)
-        elif a.sub == "hook":
-            cli_voz.cmd_hook(a.modo)
-        elif a.sub == "estado":
-            import json as _json
-            print(_json.dumps(motor.diagnostico_voz(), ensure_ascii=False, indent=2))
     elif a.cmd == "roles":
         for rol in config.listar_roles(): print(f"{rol.nombre:<20} {rol.prompt.splitlines()[0] if rol.prompt else ''}")
     elif a.cmd == "modelos": listar_modelos()

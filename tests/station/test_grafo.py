@@ -50,17 +50,3 @@ def test_bitacora_oculta_list_shadow_en_mapa(qapp, tmp_path, monkeypatch):
     assert tab.filtros.buttons["Todos"].parent() is tab.filtros._inner
     tab.reader.stop()
     tab.close()
-
-
-def test_settings_voz_roundtrip(tmp_path):
-    from agent_station.gui.settings import Settings
-
-    p = tmp_path / "config.json"
-    s = Settings(voz_tts=False, voz_interactiva=True, voz_auto_enviar=False, voz_nombre="bf_emma", voz_velocidad=1.25)
-    s.save(p)
-    loaded = Settings.load(p)
-    assert loaded.voz_tts is False
-    assert loaded.voz_interactiva is True
-    assert loaded.voz_auto_enviar is False
-    assert loaded.voz_nombre == "bf_emma"
-    assert loaded.voz_velocidad == 1.25
