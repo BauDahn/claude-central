@@ -31,6 +31,8 @@ fi
 
 echo "→ Comandos en $BIN"
 install -m755 "$HERE/bin/escucha" "$BIN/"
+# hyprd: si ya es un enlace (p. ej. a tus dotfiles) no se pisa
+if [ -L "$BIN/hyprd" ]; then echo "  hyprd ya es un enlace ($(readlink "$BIN/hyprd")); no lo toco"; else install -m755 "$HERE/bin/hyprd" "$BIN/"; fi
 if command -v uv >/dev/null; then
   uv tool install --force --editable "$HERE[ui]" >/dev/null && echo "  central (CLI Python) instalado con uv"
 else

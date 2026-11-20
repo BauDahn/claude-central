@@ -22,18 +22,18 @@ id = "claude-haiku-5-5"
 para-que-sirve = "Tareas simples y rápidas"
 costo = "bajo"
 
+# Gemini va por Antigravity (agy), con el login de Google: no hace falta GEMINI_API_KEY.
+# `modelo` es el nombre exacto que acepta agy (`sub --modelos`); `id` es el corto para central.
 [[modelo]]
-backend = "openai"
+backend = "agy"
 id = "gemini-4-hydrogen"
+modelo = "Gemini 4 Hydrogen (High)"
 para-que-sirve = "Análisis y tareas generales"
 costo = "medio"
-base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
-api_key_env = "GEMINI_API_KEY"
 
 [[modelo]]
-backend = "openai"
+backend = "agy"
 id = "gemini-neon"
+modelo = "Gemini 4 Neon (Medium)"
 para-que-sirve = "Tareas rápidas"
 costo = "bajo"
-base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
-api_key_env = "GEMINI_API_KEY"

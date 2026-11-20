@@ -153,7 +153,7 @@ def focus_ws(t):
     """Al cambiar de destino por voz, llevar la vista al workspace de esa terminal."""
     try:
         if t and t.get("workspace", {}).get("id", 0) > 0:
-            subprocess.run(["hyprctl", "dispatch", "workspace", str(t["workspace"]["id"])],
+            subprocess.run([os.path.expanduser("~/.local/bin/hyprd"), "workspace", str(t["workspace"]["id"])],
                            stdout=subprocess.DEVNULL, check=False)
     except Exception as e:
         voice.log(f"listen: focus_ws error {e!r}")
@@ -401,6 +401,7 @@ def main():
     signal.signal(signal.SIGUSR1, on_usr1)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     q = queue.Queue()
+    import faster_whisper, faster_whisper.vad  # precarga en el hilo principal: evita deadlock de imports (Python 3.14)
     threading.Thread(target=transcriber, args=(q,), daemon=True).start()
     vad = Vad()
     p = subprocess.Popen(
