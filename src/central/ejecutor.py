@@ -49,7 +49,7 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
     if model:
         opts = {**rol.opciones, **{k: model[k] for k in ("base_url", "api_key_env") if k in model}}
         opts["backend"] = (ajustes or {}).get("backend") or model["backend"]
-        opts["model"] = model["id"]
+        opts["model"] = model.get("modelo", model["id"])   # `modelo`: nombre que entiende el backend (p. ej. agy) si no coincide con el id
         rol = dataclasses.replace(rol, opciones=opts)
     # El perfil de permisos manda: `escribir` (del rol o de la tarea) solo puede bajarlo a lectura, nunca subirlo.
     esc = rol.opciones.get("escribir")
@@ -66,7 +66,7 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
         if elegido and elegido != model_id:
             model = modelo_por_id(elegido)
             if not model: raise SystemExit(f"central: modelo aprobado desconocido: {elegido}")
-            rol = dataclasses.replace(rol, opciones={**rol.opciones, **model, "model": elegido})
+            rol = dataclasses.replace(rol, opciones={**rol.opciones, **model, "model": model.get("modelo", elegido)})
     eventos.registrar("lanzamiento", funcion=nombre, modelo=rol.opciones.get("model", ""), propuesta=propuesta, estado="corriendo")
     prompt, ctx = armar_prompt(rol, tarea, cwd, proyecto)
     if simular:
