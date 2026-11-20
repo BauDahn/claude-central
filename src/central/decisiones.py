@@ -10,11 +10,12 @@ from . import eventos
 
 
 def registrar(prompt: str, motor: str, modelo: str = "", origen: str = "sub", directorio: str = "", nombre: str = "",
-              motivo: str = "") -> str:
+              motivo: str = "", funcion: str = "") -> str:
     id_ = uuid.uuid4().hex[:10]
+    extra = {"funcion": funcion} if funcion else {}
     eventos.registrar("decision", id=id_, prompt=prompt, prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()[:16],
                       motor=motor, modelo=modelo, origen=origen, directorio=directorio, nombre=nombre, motivo=motivo,
-                      largo=len(prompt))
+                      largo=len(prompt), **extra)
     return id_
 
 

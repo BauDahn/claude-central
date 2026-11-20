@@ -3,10 +3,21 @@
 # sublog --seguir         en vivo
 # sublog --todo           completo
 # sublog --crudo <nombre> lo que pasó en la terminal de ese subagente (sin códigos de color), últimas 80 líneas
-BUS="${AGENTES_HOME:-$HOME/agentes}/estado/subs/bus.log"; touch "$BUS"
+SUBS="${AGENTES_HOME:-$HOME/agentes}/estado/subs"
+BUS="$SUBS/bus.log"; mkdir -p "$SUBS"; touch "$BUS"
+alias_sed() {
+  local json expr
+  json="$(central nombre alias 2>/dev/null || echo '{}')"
+  expr="$(jq -r 'to_entries | map("s/^([0-9:]+ )\\[\(.key)\\]/\\1[\(.value)]/") | join("; ")' <<<"$json" 2>/dev/null || true)"
+  if [ -n "$expr" ]; then sed -u -E "$expr"; else cat; fi
+}
 case "$1" in
-  --seguir) exec tail -n 20 -f "$BUS" ;;
-  --todo) command cat "$BUS" ;;
-  --crudo) sed -E 's/\x1b\[[0-9;?]*[ -\/]*[@-~]//g; s/\x1b\][^\x07]*\x07//g' "${AGENTES_HOME:-$HOME/agentes}/estado/subs/$2.log" | tr -d '\r' | grep -v '^\s*$' | tail -n 80 ;;
-  *) tail -n 40 "$BUS" ;;
+  --seguir) tail -n 20 -f "$BUS" | alias_sed ;;
+  --todo) command cat "$BUS" | alias_sed ;;
+  --crudo)
+    target="$(central nombre resolver "$2" --subs-dir "$SUBS" 2>/dev/null)" || target="$2"
+    logfile="$SUBS/$target.log"
+    [ -f "$logfile" ] || { echo "no existe log para '$2' ($logfile)" >&2; exit 1; }
+    sed -E 's/\x1b\[[0-9;?]*[ -\/]*[@-~]//g; s/\x1b\][^\x07]*\x07//g' "$logfile" | tr -d '\r' | grep -v '^\s*$' | tail -n 80 ;;
+  *) tail -n 40 "$BUS" | alias_sed ;;
 esac

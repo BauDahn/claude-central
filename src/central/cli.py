@@ -7,15 +7,16 @@
   central msg enviar <de> <a> "texto"      escribe un mensaje en el buzón (cualquier agente, cualquier backend)
   central msg leer [agente] [--desde 2d]
   central bitacora [--desde 24h] [--agente X] [--completo] [--seguir]
+  central supervisar [--desde 24h] [--solo-ver]   detecta subagentes inactivos, sin reporte o vacíos
   central optimizador [--desde 7d]         qué logró el optimizador (pedidos, entregas, tokens ahorrados)
   central uso [--desde 7d] [--por backend|agente|modelo|proyecto]
   central permisos ver [rol] | dar <rol> <regla> [--hasta 1h] | quitar <rol> <regla>   permisos por agente (solo subagentes)
   central importar central                trae a este registro lo que ya existe en la máquina (Codex vía el antiguo cx, sesiones Claude)
 """
-import argparse, datetime as dt, os, re, sys, time, uuid
+import argparse, datetime as dt, json, os, re, sys, time, uuid
 from pathlib import Path
 
-from . import tablero, decisiones, buzon, config, ejecutor, eventos, importar, lanzar, permisos, uso
+from . import tablero, decisiones, buzon, config, ejecutor, eventos, importar, lanzar, nombres, permisos, supervisor, uso
 
 
 def desde_ts(s: str) -> float:
@@ -126,13 +127,26 @@ def main(argv=None):
     b = sub.add_parser("bitacora"); b.add_argument("--desde", default="24h"); b.add_argument("--agente")
     b.add_argument("--completo", action="store_true"); b.add_argument("--seguir", action="store_true")
     o = sub.add_parser("optimizador"); o.add_argument("--desde", default="7d")
+    sv = sub.add_parser("supervisar", help="supervisa logs y procesos de subagentes (`sub`)")
+    sv.add_argument("--desde", default="24h")
+    sv.add_argument("--umbral-inactivo", type=float, default=10.0)
+    sv.add_argument("--umbral-avance", type=float, default=5.0)
+    sv.add_argument("--cpu", type=float, default=1.5)
+    sv.add_argument("--solo-ver", action="store_true")
+    sv.add_argument("--repetir", action="store_true")
+    sv.add_argument("--json", action="store_true")
     u = sub.add_parser("uso"); u.add_argument("--desde", default="7d"); u.add_argument("--por", default="backend", choices=["backend", "agente", "modelo", "proyecto"]); u.add_argument("--reiniciar", action="store_true")
     i = sub.add_parser("importar"); i.add_argument("origen", choices=["central"])
     r = sub.add_parser("correr"); r.add_argument("rol"); r.add_argument("tarea"); r.add_argument("-C", default=".")
     r.add_argument("-p", "--proyecto"); r.add_argument("-t", "--id", help="ID de tarea del tablero: se toma antes y se marca lista/bloqueada después"); r.add_argument("--de", default=None, help="quién delega (por defecto, el agente que te lanzó)")
     r.add_argument("--backend", choices=list(config_backends())); r.add_argument("--modelo"); r.add_argument("--propuesta"); r.add_argument("--escribir", choices=["si", "no"])
     r.add_argument("--ligero", choices=["si", "no", "lectura"], help="claude sin herramientas (si), con todas (no) o solo Read para imágenes (lectura)")
+    r.add_argument("--nombre", default=None, help="nombre del subagente (def. siguiente griego libre)")
     r.add_argument("--aprobado", action="store_true", help="el usuario aprobó este motor/modelo (obligatorio si no lo corrés vos desde una terminal)"); r.add_argument("--motivo", default="", help="por qué este motor/modelo"); r.add_argument("--simular", action="store_true", help="solo imprime el prompt que recibiría el modelo (no llama a nadie)")
+    nb = sub.add_parser("nombre", help="asignación y resolución de nombres de subagentes").add_subparsers(dest="sub", required=True)
+    nba = nb.add_parser("asignar"); nba.add_argument("--nombre"); nba.add_argument("--ocupado", action="append", default=[])
+    nbl = nb.add_parser("alias"); nbl.add_argument("--desde", type=float, default=None)
+    nbr = nb.add_parser("resolver"); nbr.add_argument("nombre"); nbr.add_argument("--subs-dir", default="")
     sg = sub.add_parser("seguir", help="sigue un hilo de Codex ya empezado (reusa caché, más barato)"); sg.add_argument("hilo"); sg.add_argument("mensaje")
     pm = sub.add_parser("permisos").add_subparsers(dest="sub", required=True)
     pv = pm.add_parser("ver"); pv.add_argument("rol", nargs="?")
@@ -163,6 +177,7 @@ def main(argv=None):
     elif a.cmd == "bitacora": cmd_bitacora(a)
     elif a.cmd == "permisos": cmd_permisos(a)
     elif a.cmd == "optimizador": cmd_optimizador(a)
+    elif a.cmd == "supervisar": sys.exit(supervisor.cmd_supervisar(a))
     elif a.cmd == "uso": cmd_uso(a)
     elif a.cmd == "importar": print("importado:", importar.desde_central())
     elif a.cmd == "decisiones":
@@ -184,12 +199,24 @@ def main(argv=None):
     elif a.cmd == "seguir":
         d = decisiones.por_hilo(a.hilo)
         if not d: sys.exit(f"central: no encuentro el hilo {a.hilo} (solo se pueden seguir hilos de Codex lanzados con central)")
-        res = ejecutor.correr(d["nombre"], a.mensaje + "\n\n(Terminá con el mismo formato de mensaje final: LISTO/BLOQUEADO/NECESITA, archivos, verificado.)",
-                              Path(d["directorio"]), None, None, False, {"model": d["modelo"], "backend": d["motor"]}, None, a.hilo)
-        tablero.soltar_bloqueos(f"{d['nombre']}-{d['motor']}")
+        rol_nombre = d.get("funcion") or d["nombre"]
+        sub_nombre = d["nombre"]
+        res = ejecutor.correr(rol_nombre, a.mensaje + "\n\n(Terminá con el mismo formato de mensaje final: LISTO/BLOQUEADO/NECESITA, archivos, verificado.)",
+                              Path(d["directorio"]), None, None, False, {"model": d["modelo"], "backend": d["motor"]}, None, a.hilo,
+                              agente_nombre=sub_nombre)
+        tablero.soltar_bloqueos(sub_nombre)
         print(res.texto)
-        print(f"\n[central] {d['nombre']} · {res.modelo} · in {res.entrada:,} (caché {res.cache:,}) · out {res.salida:,} · hilo {res.hilo or a.hilo}", file=sys.stderr)
+        print(f"\n[central] {sub_nombre} · {res.modelo} · in {res.entrada:,} (caché {res.cache:,}) · out {res.salida:,} · hilo {res.hilo or a.hilo}", file=sys.stderr)
         sys.exit(0 if res.codigo == 0 else 1)
+    elif a.cmd == "nombre":
+        if a.sub == "asignar":
+            print(nombres.asignar(a.nombre, a.ocupado))
+        elif a.sub == "alias":
+            desde = a.desde if a.desde is not None else (nombres.sesion_inicio() or 0.0)
+            print(json.dumps(nombres.alias_sesion(eventos.leer(desde=desde)), ensure_ascii=False))
+        elif a.sub == "resolver":
+            subs_dir = Path(a.subs_dir) if a.subs_dir else (Path(os.environ.get("AGENTES_HOME", Path.home() / "agentes")) / "estado" / "subs")
+            print(nombres.resolver_log(a.nombre, subs_dir))
     elif a.cmd == "roles":
         for rol in config.listar_roles(): print(f"{rol.nombre:<20} {rol.prompt.splitlines()[0] if rol.prompt else ''}")
     elif a.cmd == "modelos": listar_modelos()
@@ -217,16 +244,17 @@ def main(argv=None):
         if not a.simular and not a.aprobado and not sys.stdout.isatty():
             sys.exit("central: SIN APROBACIÓN. Proponele al usuario motor y modelo (con el motivo) y esperá su OK; luego agregá --aprobado --motivo \"...\". Opciones: central modelos")
         os.environ["CENTRAL_MOTIVO"] = a.motivo
-        agente = f"{a.rol}-{a.backend or 'codex'}"
+        sub_nombre = a.rol if a.simular else nombres.asignar(a.nombre)
         if a.id and not a.simular:
-            if err := tablero.tomar(a.id, agente, a.proyecto): sys.exit(f"BLOQUEADO: no pude tomar la tarea #{a.id}: {err}")
-        res = ejecutor.correr(a.rol, a.tarea, Path(a.C), a.proyecto, a.de, a.simular, aj, a.propuesta)
+            if err := tablero.tomar(a.id, sub_nombre, a.proyecto): sys.exit(f"BLOQUEADO: no pude tomar la tarea #{a.id}: {err}")
+        res = ejecutor.correr(a.rol, a.tarea, Path(a.C), a.proyecto, a.de, a.simular, aj, a.propuesta,
+                              agente_nombre=None if a.simular else sub_nombre)
         if not a.simular:
-            tablero.soltar_bloqueos(agente)
-            if a.id: tablero.cerrar(a.id, agente, a.proyecto, res.texto)
+            tablero.soltar_bloqueos(sub_nombre)
+            if a.id: tablero.cerrar(a.id, sub_nombre, a.proyecto, res.texto)
         print(res.texto)
         if not a.simular:
-            print(f"\n[central] {a.rol} · {res.modelo} · in {res.entrada:,} (caché {res.cache:,}) · out {res.salida:,}", file=sys.stderr)
+            print(f"\n[central] {sub_nombre} ({a.rol}) · {res.modelo} · in {res.entrada:,} (caché {res.cache:,}) · out {res.salida:,}", file=sys.stderr)
         sys.exit(0 if res.codigo == 0 else 1)
 
 

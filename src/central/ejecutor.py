@@ -33,7 +33,8 @@ def prof_max() -> int:
 
 
 def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: str | None = None, simular: bool = False,
-           ajustes: dict | None = None, propuesta: str | None = None, hilo: str | None = None) -> Resultado:
+           ajustes: dict | None = None, propuesta: str | None = None, hilo: str | None = None,
+           agente_nombre: str | None = None) -> Resultado:
     """ajustes: cambios puntuales al rol solo para esta tarea (backend, model, escribir...), decididos por quien delega."""
     de = de or os.environ.get("CENTRAL_AGENTE", "central")
     prof = int(os.environ.get("CENTRAL_PROFUNDIDAD", "0"))
@@ -57,7 +58,8 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
     cwd = cwd.expanduser().resolve()
     if not cwd.is_dir():
         raise SystemExit(f"central: la carpeta de trabajo no existe: {cwd}\n  Creala primero (mkdir -p {cwd}) o indicá otra con -C.")
-    agente = f"{nombre}"
+    agente = agente_nombre or f"{nombre}"
+    extra_ev = {"nombre": agente} if agente_nombre else {}
     if propuesta:
         aprobacion = next((e for e in eventos.leer(tipo="aprobacion") if e.get("id") == propuesta), None)
         if not aprobacion:
@@ -67,7 +69,7 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
             model = modelo_por_id(elegido)
             if not model: raise SystemExit(f"central: modelo aprobado desconocido: {elegido}")
             rol = dataclasses.replace(rol, opciones={**rol.opciones, **model, "model": elegido})
-    eventos.registrar("lanzamiento", funcion=nombre, modelo=rol.opciones.get("model", ""), propuesta=propuesta, estado="corriendo")
+    eventos.registrar("lanzamiento", funcion=nombre, modelo=rol.opciones.get("model", ""), propuesta=propuesta, estado="corriendo", **extra_ev)
     prompt, ctx = armar_prompt(rol, tarea, cwd, proyecto)
     if simular:
         return Resultado(prompt, modelo="(simulado)")
@@ -76,7 +78,8 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
     buzon.enviar(de, agente, "ASIGNA: " + tarea, proyecto=proyecto, contexto=[str(e.ruta) for e in ctx])
     if not ctx:
         buzon.enviar(agente, "optimizador", f"PEDIR-CONTEXTO: mapa del directorio de trabajo | fuente: {cwd} | para: {agente}", proyecto=proyecto)
-    dec_id = decisiones.registrar(tarea, rol.backend, rol.opciones.get("model", ""), "ejecutor", str(cwd), nombre, os.environ.get("CENTRAL_MOTIVO", ""))
+    dec_id = decisiones.registrar(tarea, rol.backend, rol.opciones.get("model", ""), "ejecutor", str(cwd), agente,
+                                  os.environ.get("CENTRAL_MOTIVO", ""), funcion=nombre if agente_nombre else "")
     t0 = time.time()
     antes = {k: os.environ.get(k) for k in ("CENTRAL_PROFUNDIDAD", "CENTRAL_AGENTE")}
     os.environ["CENTRAL_PROFUNDIDAD"], os.environ["CENTRAL_AGENTE"] = str(prof + 1), agente   # lo heredan los subprocesos del backend
@@ -95,5 +98,5 @@ def correr(nombre: str, tarea: str, cwd: Path, proyecto: str | None = None, de: 
                   hilo=r.hilo, contexto_inyectado=len(ctx))
     decisiones.resultado(dec_id, "terminado" if r.codigo == 0 else "error", r.entrada + r.salida, dur, r.hilo or "")
     eventos.registrar("terminado", funcion=nombre, modelo=rol.opciones.get("model", ""), propuesta=propuesta,
-                      estado="terminado" if r.codigo == 0 else "error")
+                      estado="terminado" if r.codigo == 0 else "error", **extra_ev)
     return r

@@ -2,7 +2,7 @@
 # sub <motor> [modelo] <directorio> "tarea"   — lanza un subagente de cualquier IA en un kitty (sin robar foco).
 #   motor: agy | claude | codex      modelo: nombre exacto (agy: "Gemini 4 Hydrogen (High)"; claude: opus|sonnet|haiku)
 #   sub --modelos            lista los modelos de agy
-#   sub --lista              subagentes lanzados (abiertos/cerrados)
+#   sub --lista [nombre]     subagentes lanzados (abiertos/cerrados)
 #   La tarea puede ser @archivo.txt. Opciones: --nombre X  --ws N  --aprobado --motivo "..." (OBLIGATORIO --aprobado: el usuario elige o aprueba el motor/modelo; `sub --opciones` lista lo disponible)
 # Queda registrado en estado/subs.json; log de la terminal en estado/subs/<nombre>.log
 source "$(dirname "$(readlink -f "$0")")/_lib.sh"
@@ -11,10 +11,20 @@ case "$1" in
   --opciones) echo "== Catálogo de central (central modelos) =="; central modelos; echo; echo "== Modelos de agy (agy) =="; agy --model x -p x 2>&1 | sed -n '/Available models/,$p' | tail -n +2; echo; echo "motores: agy | claude (opus|sonnet|haiku) | codex (gpt-6-luna)"; exit 0 ;;
   --modelos) agy --model x -p x 2>&1 | sed -n '/Available models/,$p'; exit 0 ;;
   --lista)
-    jq -r 'to_entries[]|"\(.key)\t\(.value.motor)\t\(.value.modelo)\t\(.value.dir)\t\(.value.ts|todate)"' "$REG" |
-    while IFS=$'\t' read -r n m mo d t; do
-      hyprctl clients -j | jq -e --arg c "agente-$n" '.[]|select(.class==$c)' >/dev/null && e=abierto || e=cerrado
-      printf '%-14s %-8s %-9s %-26s %s %s\n' "$n" "$e" "$m" "$mo" "$t" "$d"; done; exit 0 ;;
+    filtro="${2:-}"
+    aliases="$(central nombre alias 2>/dev/null || echo '{}')"
+    clients="$(hyprctl clients -j 2>/dev/null || echo '[]')"
+    jq -rn --argjson r "$(cat "$REG")" --argjson a "$aliases" --argjson c "$clients" --arg f "$filtro" '
+      def abierto($k; $al): ([$c[]?.class] | any(. == ("agente-" + $k) or ($al != null and . == ("agente-" + $al))));
+      $r | to_entries[] |
+      .key as $k | ($a[$k] // null) as $al |
+      select($f == "" or $k == $f or $al == $f) |
+      (if $al then "\($al) (\($k))" else $k end) as $disp |
+      "\($disp)\t\(if abierto($k; $al) then "abierto" else "cerrado" end)\t\(.value.motor)\t\(.value.modelo)\t\(.value.ts|todate)\t\(.value.dir)"
+    ' | while IFS=$'\t' read -r n e m mo t d; do
+      printf '%-20s %-8s %-9s %-26s %s %s\n' "$n" "$e" "$m" "$mo" "$t" "$d"
+    done
+    exit 0 ;;
 esac
 nombre=""; ws=""; pos=(); aprobado=0; motivo=""
 while [ $# -gt 0 ]; do case "$1" in --nombre) nombre="$2"; shift 2;; --ws) ws="$2"; shift 2;; --aprobado) aprobado=1; shift;; --motivo) motivo="$2"; shift 2;; *) pos+=("$1"); shift;; esac; done
@@ -28,7 +38,15 @@ fi
 dir="${dir/#\~/$HOME}"; [ -d "$dir" ] || { echo "no existe el directorio: $dir"; exit 1; }
 [ -n "$tarea" ] || { echo "falta la tarea"; exit 2; }
 [[ "$tarea" == @* ]] && tarea="$(cat "${tarea#@}")"
-[ -n "$nombre" ] || nombre="$motor-$(date +%H%M%S)"
+ocup_args=()
+while IFS= read -r c; do
+  [ -n "$c" ] && ocup_args+=(--ocupado "$c")
+done < <(hyprctl clients -j 2>/dev/null | jq -r '.[]? | .class // empty | select(startswith("agente-")) | sub("^agente-"; "")' 2>/dev/null || true)
+if [ -n "$nombre" ]; then
+  central nombre asignar --nombre "$nombre" >/dev/null 2>&1 || true
+else
+  nombre="$(central nombre asignar "${ocup_args[@]}" 2>/dev/null)" || nombre="$motor-$(date +%H%M%S)"
+fi
 pf="$SUBS/$nombre.prompt"; log="$SUBS/$nombre.log"
 printf '%s\n\n---\nCOORDINACIÓN: sos un subagente lanzado por central. Hay un log compartido que central lee en vivo. Usá el comando `reportar "mensaje corto"` (en el PATH) al empezar cada etapa, al terminar cada hito, cuando te bloquees o necesites una decisión del usuario, y al finalizar con un resumen de lo hecho. Para ver lo que reportan los demás: `sublog`.\n' "$tarea" > "$pf"
 [ -n "$ws" ] || ws="$(hyprctl activeworkspace -j | jq -r '.id')"
