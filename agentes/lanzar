@@ -11,8 +11,8 @@ if v="$(agente_ventana "$n")" && [ -n "$v" ]; then
 fi
 [ -n "$ws" ] || ws="$(hyprctl activeworkspace -j | jq -r '.id')"
 cmd="env RESTAURAR=${RESTAURAR:-0} kitty --class agente-$n --title agente-$n -d '$dir' '$ROOT/bin/_run' '$n'"
-# Hyprland >= 0.57 usa Lua: el comando va como string largo de Lua ([==[...]==]) para no escapar comillas.
-out="$(hyprctl dispatch "hl.dsp.exec_cmd([==[$cmd]==], { workspace = \"$ws silent\" })" 2>&1)"
+# hyprd traduce a Lua si Hyprland usa hyprland.lua (obligatorio desde 0.57) y si no usa la sintaxis clásica.
+out="$("$HOME/.local/bin/hyprd" exec "[workspace $ws silent] $cmd" 2>&1)"
 [ "$out" = ok ] || { echo "error al lanzar '$n': $out" >&2; exit 1; }
 for _ in $(seq 1 25); do [ -n "$(agente_ventana "$n")" ] && break; sleep 0.2; done
 [ -n "$(agente_ventana "$n")" ] || { echo "error: la ventana de '$n' no apareció" >&2; exit 1; }

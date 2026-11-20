@@ -40,4 +40,15 @@ mkdir -p "$T/codex"; sed "s#__HOME__#$T#g" "$B/../../config/codex/backend.config
 no  "equipo: sin equipo.conf falla"          $B/equipo mias
 chk "equipo: ayuda"                          $B/equipo -h
 
+# hyprd: traducción de dispatchers clásicos a Lua (sin Hyprland: HYPRD_LUA fuerza el modo Lua, HYPRD_DRY solo imprime)
+HD="$(dirname "$B")/../bin/hyprd"
+hd() { HYPRD_LUA=1 HYPRD_DRY=1 "$HD" "$@"; }
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else mal "$1 ($2)"; fi; }
+eq "hyprd: focuswindow"   "$(hd focuswindow 'class:^agente-x$')" 'hl.dsp.focus({ window = [==[class:^agente-x$]==] })'
+eq "hyprd: closewindow"   "$(hd closewindow 'class:^agente-x$')" 'hl.dsp.window.close({ window = [==[class:^agente-x$]==] })'
+eq "hyprd: workspace"     "$(hd workspace 3)" 'hl.dsp.focus({ workspace = 3 })'
+eq "hyprd: exec con reglas" "$(hd exec "[workspace 2 silent] kitty -d '/tmp'")" "hl.dsp.exec_cmd([==[kitty -d '/tmp']==], { workspace = [==[2 silent]==] })"
+eq "hyprd: sendshortcut"  "$(hd sendshortcut ', Return, address:0x1')" 'hl.dsp.send_shortcut({ mods = [==[]==], key = [==[Return]==], window = [==[address:0x1]==] })'
+no  "hyprd: dispatcher desconocido falla"    hd nada
+
 echo; [ "$fallos" = 0 ] && echo "todo ok" || { echo "$fallos fallos"; exit 1; }

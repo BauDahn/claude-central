@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# hyprd — `hyprctl dispatch` / `hyprctl keyword` que funciona igual con la config clásica
+# (hyprland.conf) y con la config Lua (hyprland.lua, obligatoria desde Hyprland 0.57).
+# Se le pasan dispatchers con la sintaxis clásica y, si Hyprland está en modo Lua, los traduce.
+#
+#   hyprd exit
+#   hyprd focuswindow address:0x1234        hyprd closewindow 'class:^kitty$'
+#   hyprd workspace 3                       hyprd movetoworkspace 3
+#   hyprd sendshortcut 'CTRL SHIFT, V, activewindow'
+#   hyprd movewindowpixel 'exact 100 200,title:^Foo$'
+#   hyprd dpms on|off|toggle                hyprd killactive
+#   hyprd exec '[workspace 3 silent] kitty'
+#   hyprd keyword input:sensitivity 0.3
+set -uo pipefail
+[ $# -ge 1 ] || { sed -n '2,13p' "$0" >&2; exit 2; }
+
+lua_mode() { [ -n "${HYPRD_LUA:-}" ] && return 0; ! hyprctl eval 'return 1' 2>&1 | grep -q "only supported"; }
+q() { printf '[==[%s]==]' "$1"; }                       # literal de texto Lua
+trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+num_or_str() { [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || q "$1"; }
+win() { local s; s="$(trim "$1")"; case "$s" in ""|activewindow) ;; *) printf ', window = %s' "$(q "$s")" ;; esac; }
+
+d="$1"; shift; arg="$*"
+
+if ! lua_mode; then
+    if [ "$d" = keyword ]; then exec hyprctl keyword "$@"; fi
+    exec hyprctl dispatch "$d" "$arg"
+fi
+
+case "$d" in
+    exit)          L='hl.dsp.exit()' ;;
+    killactive)    L='hl.dsp.window.close()' ;;
+    focuswindow)   L="hl.dsp.focus({ window = $(q "$arg") })" ;;
+    closewindow)   L="hl.dsp.window.close({ window = $(q "$arg") })" ;;
+    workspace)     L="hl.dsp.focus({ workspace = $(num_or_str "$arg") })" ;;
+    movetoworkspace) L="hl.dsp.window.move({ workspace = $(num_or_str "$arg") })" ;;
+    movetoworkspacesilent) L="hl.dsp.window.move({ workspace = $(num_or_str "$arg"), follow = false })" ;;
+    dpms)          L="hl.dsp.dpms({ action = $(q "${arg:-toggle}") })" ;;
+    sendshortcut)  IFS=, read -r mods key sel <<<"$arg"
+                   L="hl.dsp.send_shortcut({ mods = $(q "$(trim "$mods")"), key = $(q "$(trim "$key")")$(win "$sel") })" ;;
+    movewindowpixel) pos="${arg%%,*}"; sel=""; [[ "$arg" == *,* ]] && sel="${arg#*,}"
+                   read -r mode x y <<<"$pos"
+                   rel=true; [ "$mode" = exact ] || { y="$x"; x="$mode"; }; [ "$mode" = exact ] && rel=false
+                   L="hl.dsp.window.move({ x = $x, y = $y, relative = $rel$(win "$sel") })" ;;
+    exec)          rules=""; cmd="$arg"
+                   if [[ "$arg" =~ ^\[([^]]*)\][[:space:]]*(.*)$ ]]; then
+                       cmd="${BASH_REMATCH[2]}"
+                       IFS=';' read -ra rs <<<"${BASH_REMATCH[1]}"
+                       for r in "${rs[@]}"; do r="$(trim "$r")"; [ -n "$r" ] || continue
+                           rules+="${rules:+, }${r%% *} = $(q "$(trim "${r#* }")")"; done
+                   fi
+                   L="hl.dsp.exec_cmd($(q "$cmd")${rules:+, { $rules \}})" ;;
+    keyword)       [ $# -ge 2 ] || { echo "uso: hyprd keyword <opción> <valor>" >&2; exit 2; }
+                   key="$1"; shift
+                   # device[nombre]:opción -> hl.device({ name = ..., opción = valor })
+                   if [[ "$key" =~ ^device\[([^]]+)\]:(.+)$ ]]; then
+                       exec hyprctl eval "hl.device({ name = $(q "${BASH_REMATCH[1]}"), ${BASH_REMATCH[2]} = $(num_or_str "$*") })"
+                   fi
+                   key="${key//:/.}"
+                   exec hyprctl eval "hl.config({ [ $(q "$key") ] = $(num_or_str "$*") })" ;;
+    *)             echo "hyprd: dispatcher '$d' sin traducción a Lua; añádelo a $0" >&2; exit 3 ;;
+esac
+[ -n "${HYPRD_DRY:-}" ] && { echo "$L"; exit 0; }
+exec hyprctl dispatch "$L"
